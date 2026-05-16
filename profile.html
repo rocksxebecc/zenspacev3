@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zenspace — Profile</title>
+  <link rel="stylesheet" href="assets/zenspace.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="assets/supabase.js"></script>
+  <style>
+    body { background: var(--bg); }
+
+    /* ── Layout ── */
+    .page-wrap { max-width: 960px; margin: 0 auto; padding: 36px 24px 80px; }
+    .page-grid { display: grid; grid-template-columns: 300px 1fr; gap: 24px; align-items: start; }
+
+    /* ── Profile card ── */
+    .profile-card { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; overflow: hidden; position: sticky; top: 80px; }
+    .profile-banner { height: 90px; position: relative; }
+    .profile-avatar-wrap { position: absolute; bottom: -32px; left: 20px; }
+    .profile-avatar { width: 64px; height: 64px; border-radius: 50%; background: var(--ink); border: 3px solid var(--surface); display: flex; align-items: center; justify-content: center; font-size: 1.6rem; cursor: pointer; transition: transform var(--t); position: relative; }
+    .profile-avatar:hover { transform: scale(1.05); }
+    .avatar-edit-hint { position: absolute; bottom: 0; right: 0; width: 20px; height: 20px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: .55rem; }
+    .profile-info { padding: 40px 20px 20px; }
+    .profile-display-name { font-family: var(--font-serif); font-size: 1.25rem; color: var(--ink); margin-bottom: 2px; }
+    .profile-username { font-size: .78rem; color: var(--ink-faint); font-weight: 600; letter-spacing: .03em; }
+    .profile-username span { color: var(--ink-muted); }
+    .profile-bio { font-size: .82rem; color: var(--ink-muted); line-height: 1.6; margin: 10px 0; }
+    .profile-meta { display: flex; flex-direction: column; gap: 5px; margin: 12px 0; }
+    .profile-meta-item { display: flex; align-items: center; gap: 7px; font-size: .78rem; color: var(--ink-muted); }
+    .profile-meta-item svg { width: 13px; height: 13px; stroke: var(--ink-faint); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+    .profile-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px; background: var(--border); border-top: 1px solid var(--border); }
+    .prof-stat { background: var(--surface); padding: 14px 8px; text-align: center; }
+    .prof-stat-num { font-family: var(--font-serif); font-size: 1.3rem; color: var(--ink); }
+    .prof-stat-lbl { font-size: .65rem; color: var(--ink-faint); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; margin-top: 2px; }
+
+    /* ── Tabs ── */
+    .tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 0; }
+    .tab-btn { padding: 10px 16px; font-size: .82rem; font-weight: 600; color: var(--ink-muted); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; font-family: var(--font-sans); transition: color var(--t), border-color var(--t); margin-bottom: -1px; letter-spacing: .02em; }
+    .tab-btn:hover { color: var(--ink); }
+    .tab-btn.active { color: var(--ink); border-bottom-color: var(--ink); }
+    .tab-pane { display: none; animation: fade-in .2s ease; }
+    .tab-pane.active { display: block; }
+
+    /* ── Settings form ── */
+    .settings-section { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; margin-bottom: 16px; }
+    .settings-section h3 { font-family: var(--font-serif); font-size: 1.05rem; color: var(--ink); margin-bottom: 18px; display: flex; align-items: center; gap: 8px; }
+    .settings-section h3 svg { width: 16px; height: 16px; stroke: var(--ink-muted); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .sf { margin-bottom: 14px; }
+    .sf label { display: block; font-size: .7rem; font-weight: 700; color: var(--ink-muted); margin-bottom: 5px; letter-spacing: .06em; text-transform: uppercase; }
+    .sf input, .sf select, .sf textarea { width: 100%; height: 40px; border: 1.5px solid var(--border); border-radius: 10px; padding: 0 12px; background: var(--bg); color: var(--ink); font-family: var(--font-sans); font-size: .86rem; outline: none; transition: border-color var(--t); }
+    .sf input:focus, .sf select:focus { border-color: var(--ink); box-shadow: 0 0 0 3px rgba(0,0,0,.06); }
+    .sf textarea { height: 80px; padding: 10px 12px; resize: vertical; }
+    .sf .hint { font-size: .7rem; color: var(--ink-faint); margin-top: 4px; }
+    .sf .hint.error { color: var(--error); }
+    .sf .hint.ok    { color: var(--ok); }
+    .username-wrap { position: relative; }
+    .username-wrap .prefix { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: .86rem; color: var(--ink-faint); font-weight: 600; pointer-events: none; }
+    .username-wrap input { padding-left: 24px; }
+    .username-check { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: .82rem; font-weight: 700; }
+    .username-check.ok { color: var(--ok); }
+    .username-check.err { color: var(--error); }
+
+    /* Avatar emoji picker */
+    .emoji-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .emoji-opt { width: 36px; height: 36px; border-radius: 8px; border: 1.5px solid var(--border); background: var(--bg); font-size: 1.1rem; display: grid; place-items: center; cursor: pointer; transition: all var(--t); }
+    .emoji-opt:hover { border-color: var(--ink); background: var(--surface-2); }
+    .emoji-opt.selected { border-color: var(--ink); background: var(--ink); filter: none; }
+
+    /* Color picker strip */
+    .color-strip { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .color-swatch { width: 28px; height: 28px; border-radius: 50%; cursor: pointer; border: 2.5px solid transparent; transition: all var(--t); }
+    .color-swatch.selected { border-color: var(--ink); transform: scale(1.15); box-shadow: 0 0 0 3px rgba(0,0,0,.12); }
+
+    /* ── Friends ── */
+    .friend-search-wrap { position: relative; margin-bottom: 16px; }
+    .friend-search-wrap input { width: 100%; height: 42px; padding: 0 16px 0 42px; border: 1.5px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink); font-family: var(--font-sans); font-size: .86rem; outline: none; transition: border-color var(--t); }
+    .friend-search-wrap input:focus { border-color: var(--ink); }
+    .friend-search-wrap svg { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; stroke: var(--ink-faint); fill: none; pointer-events: none; }
+    .friend-search-results { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 20px; display: none; }
+    .friend-search-results.visible { display: block; }
+
+    .user-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border-light); transition: background var(--t); }
+    .user-row:last-child { border-bottom: none; }
+    .user-row:hover { background: var(--surface-2); }
+    .user-mini-avatar { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
+    .user-row-info { flex: 1; min-width: 0; }
+    .user-row-name { font-size: .86rem; font-weight: 600; color: var(--ink); }
+    .user-row-username { font-size: .74rem; color: var(--ink-faint); }
+    .user-row-meta { font-size: .72rem; color: var(--ink-muted); margin-top: 1px; }
+    .user-row-actions { flex-shrink: 0; display: flex; gap: 6px; align-items: center; }
+
+    .req-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 8px; }
+    .req-card .user-row { border-bottom: none; }
+    .req-meta { font-size: .72rem; color: var(--ink-faint); padding: 0 16px 12px; display: flex; align-items: center; gap: 8px; }
+    .req-msg { font-size: .78rem; color: var(--ink-muted); font-style: italic; padding: 0 16px 10px; }
+
+    .status-pill { display: inline-flex; align-items: center; gap: 4px; font-size: .68rem; font-weight: 700; padding: 3px 9px; border-radius: 20px; letter-spacing: .04em; text-transform: uppercase; }
+    .sp-pending  { background: var(--warn-lt);   color: var(--warn); }
+    .sp-accepted { background: var(--ok-lt);     color: var(--ok); }
+    .sp-declined { background: var(--error-lt);  color: var(--error); }
+
+    .section-sub { font-size: .78rem; color: var(--ink-muted); margin-bottom: 14px; }
+
+    /* Send request msg input */
+    .req-msg-row { padding: 0 16px 12px; display: flex; gap: 8px; }
+    .req-msg-row input { flex: 1; height: 34px; border: 1.5px solid var(--border); border-radius: 8px; padding: 0 10px; background: var(--bg); color: var(--ink); font-family: var(--font-sans); font-size: .8rem; outline: none; }
+    .req-msg-row input:focus { border-color: var(--ink); }
+
+    /* Danger zone */
+    .danger-zone { background: var(--error-lt); border: 1px solid var(--error); border-radius: 14px; padding: 20px 24px; }
+    .danger-zone h3 { color: var(--error); font-family: var(--font-serif); font-size: 1rem; margin-bottom: 10px; }
+    .danger-zone p { font-size: .82rem; color: var(--error); opacity: .8; margin-bottom: 14px; line-height: 1.55; }
+
+    /* Toast override - matches dark theme */
+    .tab-badge { display: inline-flex; align-items: center; justify-content: center; background: var(--error); color: #fff; border-radius: 10px; font-size: .62rem; font-weight: 700; padding: 1px 5px; margin-left: 5px; min-width: 16px; }
+
+    @media (max-width: 720px) {
+      .page-grid { grid-template-columns: 1fr; }
+      .profile-card { position: static; }
+      .field-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav">
+  <a class="brand" href="index.html">
+    <span class="brand-icon"><svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></span>
+    <span class="brand-name">Zenspace</span>
+  </a>
+  <span class="nav-spacer"></span>
+  <a class="btn btn-ghost btn-sm" href="dashboard.html">← Dashboard</a>
+  <a class="btn btn-ghost btn-sm" href="chat.html" style="display:flex;align-items:center;gap:5px"> Messages</a>
+  <div style="width:8px"></div>
+  <div class="nav-avatar" id="navAvatar" style="cursor:pointer"></div>
+</nav>
+
+<div class="page-wrap">
+  <!-- Username Setup Banner (shown if no username) -->
+  <div id="usernameSetupBanner" style="display:none;background:var(--ink);color:#fff;border-radius:14px;padding:18px 22px;margin-bottom:24px;display:none;align-items:center;gap:14px;flex-wrap:wrap">
+    <span style="font-size:1.3rem"></span>
+    <div style="flex:1"><div style="font-family:var(--font-serif);font-size:1rem;margin-bottom:3px">Set your username to connect with friends</div><div style="font-size:.8rem;opacity:.65">Choose a unique @username so others can find and add you.</div></div>
+    <button class="btn" style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.25)" onclick="switchTab('settings')">Set username →</button>
+  </div>
+
+  <div class="page-grid">
+    <!-- LEFT: Profile card -->
+    <div>
+      <div class="profile-card">
+        <div class="profile-banner" id="profileBanner" style="background:#1A1A1A">
+          <div class="profile-avatar-wrap">
+            <div class="profile-avatar" id="profileAvatar" title="Change avatar">
+              
+              <div class="avatar-edit-hint">✏</div>
+            </div>
+          </div>
+        </div>
+        <div class="profile-info">
+          <div class="profile-display-name" id="profileDisplayName">Loading…</div>
+          <div class="profile-username"><span>@</span><span id="profileUsername">…</span></div>
+          <div class="profile-bio" id="profileBio"></div>
+          <div class="profile-meta">
+            <div class="profile-meta-item" id="profileUni" style="display:none"><svg viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg><span></span></div>
+            <div class="profile-meta-item" id="profileCourse" style="display:none"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg><span></span></div>
+            <div class="profile-meta-item" id="profileYear" style="display:none"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg><span></span></div>
+          </div>
+          <div style="height:1px;background:var(--border);margin:12px 0"></div>
+          <div style="font-size:.7rem;color:var(--ink-faint);font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">Visibility</div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <input type="checkbox" id="profilePublic" style="width:15px;height:15px;accent-color:var(--ink);cursor:pointer" onchange="togglePublic(this.checked)" />
+            <label for="profilePublic" style="font-size:.8rem;color:var(--ink-muted);cursor:pointer">Public profile (discoverable)</label>
+          </div>
+        </div>
+        <div class="profile-stats">
+          <div class="prof-stat"><div class="prof-stat-num" id="statFriends">0</div><div class="prof-stat-lbl">Friends</div></div>
+          <div class="prof-stat"><div class="prof-stat-num" id="statPending">0</div><div class="prof-stat-lbl">Pending</div></div>
+          <div class="prof-stat"><div class="prof-stat-num" id="statSent">0</div><div class="prof-stat-lbl">Sent</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Tabs -->
+    <div>
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('settings')">⚙ Settings</button>
+        <button class="tab-btn" onclick="switchTab('friends')" id="friendsTabBtn">👥 Friends</button>
+        <button class="tab-btn" onclick="switchTab('requests')" id="requestsTabBtn">📬 Requests <span class="tab-badge" id="reqBadge" style="display:none">0</span></button>
+      </div>
+
+      <!-- ── SETTINGS TAB ── -->
+      <div class="tab-pane active" id="tab-settings">
+
+        <div class="settings-section">
+          <h3><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>Profile identity</h3>
+
+          <!-- Avatar picker -->
+          <div class="sf">
+            <label>Avatar emoji</label>
+            <div class="emoji-grid" id="emojiGrid"></div>
+          </div>
+
+          <!-- Banner colour -->
+          <div class="sf">
+            <label>Profile colour</label>
+            <div class="color-strip" id="colorStrip"></div>
+          </div>
+
+          <!-- Username -->
+          <div class="sf">
+            <label>Username <span style="color:var(--error)">*</span></label>
+            <div class="username-wrap">
+              <span class="prefix">@</span>
+              <input type="text" id="usernameInput" placeholder="your_username" maxlength="24" autocomplete="off" oninput="checkUsername()" />
+              <span class="username-check" id="usernameCheck"></span>
+            </div>
+            <div class="hint" id="usernameHint">3–24 chars, lowercase letters, numbers, underscores only.</div>
+          </div>
+
+          <div class="field-row">
+            <div class="sf">
+              <label>Display name</label>
+              <input type="text" id="displayNameInput" placeholder="Your full name" maxlength="60" />
+            </div>
+            <div class="sf">
+              <label>University / Institute</label>
+              <input type="text" id="universityInput" placeholder="e.g. IIT Bombay" maxlength="80" />
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="sf">
+              <label>Course / Major</label>
+              <input type="text" id="courseInput" placeholder="e.g. Computer Science" maxlength="80" />
+            </div>
+            <div class="sf">
+              <label>Year</label>
+              <select id="yearInput">
+                <option value="">Select year</option>
+                <option>1st Year</option>
+                <option>2nd Year</option>
+                <option>3rd Year</option>
+                <option>4th Year</option>
+                <option>5th Year</option>
+                <option>Postgraduate</option>
+                <option>PhD</option>
+                <option>Alumni</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="sf">
+            <label>Bio</label>
+            <textarea id="bioInput" placeholder="A short bio — what are you studying? What do you love?" maxlength="200"></textarea>
+            <div class="hint"><span id="bioCount">0</span>/200 characters</div>
+          </div>
+
+          <div style="display:flex;gap:10px;justify-content:flex-end">
+            <button class="btn btn-ghost btn-sm" onclick="loadProfile()">Reset</button>
+            <button class="btn btn-primary" id="saveProfileBtn" onclick="saveProfile()">Save profile</button>
+          </div>
+        </div>
+
+        <!-- Account settings -->
+        <div class="settings-section">
+          <h3><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>Account</h3>
+          <div class="sf">
+            <label>Email address</label>
+            <input type="email" id="emailDisplay" disabled style="background:var(--surface-2);color:var(--ink-faint);cursor:not-allowed" />
+            <div class="hint">Email cannot be changed here. Contact support.</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="ZenAuth.signOutUser()">Sign out of all devices</button>
+        </div>
+
+        <!-- Danger zone -->
+        <div class="danger-zone">
+          <h3>⚠ Danger zone</h3>
+          <p>Deleting your account is permanent and cannot be undone. All your data including notes, tasks, and friend connections will be erased.</p>
+          <button class="btn btn-sm" style="background:var(--error);color:#fff;border:none" onclick="confirmDeleteAccount()">Delete my account</button>
+        </div>
+
+      </div>
+
+      <!-- ── FRIENDS TAB ── -->
+      <div class="tab-pane" id="tab-friends">
+        <div class="settings-section" style="margin-bottom:16px">
+          <h3><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>Find people</h3>
+          <div class="friend-search-wrap">
+            <svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            <input type="text" id="friendSearchInput" placeholder="Search by @username or display name…" oninput="searchUsers()" autocomplete="off" />
+          </div>
+          <div class="friend-search-results" id="searchResults"></div>
+        </div>
+
+        <div class="settings-section">
+          <h3><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>Your friends</h3>
+          <p class="section-sub">People you're connected with on Zenspace.</p>
+          <div id="friendsList"><div class="empty-msg" style="padding:20px">No friends yet. Search above to find people!</div></div>
+        </div>
+      </div>
+
+      <!-- ── REQUESTS TAB ── -->
+      <div class="tab-pane" id="tab-requests">
+        <!-- Incoming -->
+        <div class="settings-section" style="margin-bottom:16px">
+          <h3><svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 10.8a19.79 19.79 0 01-3.07-8.68A2 2 0 012 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.16 6.16l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>Incoming requests</h3>
+          <div id="incomingRequests"><div class="empty-msg" style="padding:16px">No incoming requests.</div></div>
+        </div>
+
+        <!-- Sent -->
+        <div class="settings-section">
+          <h3><svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>Sent requests</h3>
+          <div id="sentRequests"><div class="empty-msg" style="padding:16px">No sent requests.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="assets/zenspace.js"></script>
+<script>
+/* ══════════════════════════════════════════
+   CONSTANTS
+══════════════════════════════════════════ */
+const EMOJIS = ['','','','','','','⚽','🏀','','','','','📐','🎭','🌱','','🦁','🐼','🦊','🐙','⭐','','💎',''];
+const COLORS = ['#1A1A1A','#2D4A3E','#1A3A5C','#4A1A3A','#3A2A1A','#555555','#2E7D52','#1565C0','#7B1FA2','#E65100','#C62828','#37474F'];
+
+let myProfile = null;
+let myUserId  = null;
+let usernameValid = false;
+let usernameTimer = null;
+
+/* ══════════════════════════════════════════
+   INIT
+══════════════════════════════════════════ */
+(async () => {
+  await ZenAuth.initSupabase();
+  const session = await ZenAuth.getSession();
+  if (!session) { window.location.href = 'login.html'; return; }
+
+  myUserId = session.user.id;
+  document.getElementById('navAvatar').textContent = (session.user.email||'U')[0].toUpperCase();
+  document.getElementById('emailDisplay').value = session.user.email || '';
+
+  buildEmojiGrid();
+  buildColorStrip();
+
+  await loadProfile();
+  await loadFriendData();
+})();
+
+function switchTab(id) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelector(`#tab-${id}`).classList.add('active');
+  document.querySelectorAll('.tab-btn').forEach(b => { if(b.textContent.toLowerCase().includes(id.substring(0,4))) b.classList.add('active'); });
+  if (id === 'requests') loadFriendData();
+  if (id === 'friends')  loadFriendData();
+}
+
+/* ══════════════════════════════════════════
+   PROFILE LOAD & SAVE
+══════════════════════════════════════════ */
+async function loadProfile() {
+  const client = ZenAuth.getSupabaseClient();
+  const { data, error } = await client.from('profiles').select('*').eq('id', myUserId).single();
+
+  if (error || !data) {
+    // Profile might not exist yet (old users before trigger)
+    document.getElementById('usernameSetupBanner').style.display = 'flex';
+    return;
+  }
+
+  myProfile = data;
+  populateForm(data);
+  updateProfileCard(data);
+}
+
+function populateForm(p) {
+  document.getElementById('usernameInput').value = p.username || '';
+  document.getElementById('displayNameInput').value = p.display_name || '';
+  document.getElementById('universityInput').value = p.university || '';
+  document.getElementById('courseInput').value = p.course || '';
+  document.getElementById('yearInput').value = p.year || '';
+  document.getElementById('bioInput').value = p.bio || '';
+  document.getElementById('profilePublic').checked = p.is_public !== false;
+  document.getElementById('bioCount').textContent = (p.bio || '').length;
+  setSelectedEmoji(p.avatar_emoji || '');
+  setSelectedColor(p.avatar_color || '#1A1A1A');
+  usernameValid = true;
+  document.getElementById('usernameCheck').textContent = '✓';
+  document.getElementById('usernameCheck').className = 'username-check ok';
+}
+
+function updateProfileCard(p) {
+  document.getElementById('profileDisplayName').textContent = p.display_name || p.username || '—';
+  document.getElementById('profileUsername').textContent = p.username || '—';
+  document.getElementById('profileBio').textContent = p.bio || '';
+  document.getElementById('profileAvatar').childNodes[0].textContent = p.avatar_emoji || '';
+  document.getElementById('profileBanner').style.background = p.avatar_color || '#1A1A1A';
+
+  const uniEl = document.getElementById('profileUni');
+  if (p.university) { uniEl.querySelector('span').textContent = p.university; uniEl.style.display = 'flex'; }
+  else uniEl.style.display = 'none';
+
+  const cEl = document.getElementById('profileCourse');
+  if (p.course) { cEl.querySelector('span').textContent = p.course + (p.year ? ` · ${p.year}` : ''); cEl.style.display = 'flex'; }
+  else cEl.style.display = 'none';
+
+  document.getElementById('profilePublic').checked = p.is_public !== false;
+}
+
+async function saveProfile() {
+  if (!usernameValid) { showToast('Fix username first', 'error'); return; }
+
+  const username = document.getElementById('usernameInput').value.trim().toLowerCase();
+  if (!username) { showToast('Username is required', 'error'); return; }
+
+  const btn = document.getElementById('saveProfileBtn');
+  btn.textContent = 'Saving…'; btn.disabled = true;
+
+  const selectedEmoji = document.querySelector('.emoji-opt.selected')?.dataset.emoji || '';
+  const selectedColor = document.querySelector('.color-swatch.selected')?.dataset.color || '#1A1A1A';
+
+  const payload = {
+    id: myUserId,
+    username,
+    display_name: document.getElementById('displayNameInput').value.trim(),
+    university: document.getElementById('universityInput').value.trim(),
+    course: document.getElementById('courseInput').value.trim(),
+    year: document.getElementById('yearInput').value,
+    bio: document.getElementById('bioInput').value.trim(),
+    avatar_emoji: selectedEmoji,
+    avatar_color: selectedColor,
+    is_public: document.getElementById('profilePublic').checked,
+  };
+
+  const client = ZenAuth.getSupabaseClient();
+  const { error } = await client.from('profiles').upsert(payload, { onConflict: 'id' });
+
+  btn.textContent = 'Save profile'; btn.disabled = false;
+
+  if (error) { showToast(error.message, 'error'); return; }
+
+  myProfile = { ...myProfile, ...payload };
+  updateProfileCard(myProfile);
+  document.getElementById('usernameSetupBanner').style.display = 'none';
+  showToast('Profile saved! ', 'success');
+}
+
+async function togglePublic(val) {
+  if (!myUserId) return;
+  const client = ZenAuth.getSupabaseClient();
+  await client.from('profiles').update({ is_public: val }).eq('id', myUserId);
+  showToast(val ? 'Profile is now public' : 'Profile is now private');
+}
+
+/* ══════════════════════════════════════════
+   USERNAME VALIDATION
+══════════════════════════════════════════ */
+async function checkUsername() {
+  const inp = document.getElementById('usernameInput');
+  const check = document.getElementById('usernameCheck');
+  const hint = document.getElementById('usernameHint');
+  const val = inp.value.trim().toLowerCase();
+
+  usernameValid = false;
+  check.textContent = '';
+  check.className = 'username-check';
+
+  if (!val) { hint.textContent = '3–24 chars, lowercase letters, numbers, underscores only.'; hint.className = 'hint'; return; }
+  if (!/^[a-z0-9_]{3,24}$/.test(val)) {
+    hint.textContent = 'Only lowercase letters, numbers, and underscores. 3–24 chars.';
+    hint.className = 'hint error'; check.textContent = '✗'; check.className = 'username-check err'; return;
+  }
+
+  hint.textContent = 'Checking…'; hint.className = 'hint';
+  clearTimeout(usernameTimer);
+  usernameTimer = setTimeout(async () => {
+    const client = ZenAuth.getSupabaseClient();
+    const { data } = await client.from('profiles').select('id').eq('username', val).neq('id', myUserId).maybeSingle();
+    if (data) {
+      hint.textContent = `@${val} is already taken.`; hint.className = 'hint error';
+      check.textContent = '✗'; check.className = 'username-check err';
+      usernameValid = false;
+    } else {
+      hint.textContent = `@${val} is available!`; hint.className = 'hint ok';
+      check.textContent = '✓'; check.className = 'username-check ok';
+      usernameValid = true;
+    }
+  }, 500);
+}
+
+/* ══════════════════════════════════════════
+   EMOJI & COLOR PICKERS
+══════════════════════════════════════════ */
+function buildEmojiGrid() {
+  const grid = document.getElementById('emojiGrid');
+  grid.innerHTML = EMOJIS.map(e => `<div class="emoji-opt" data-emoji="${e}" onclick="selectEmoji(this)" title="${e}">${e}</div>`).join('');
+}
+
+function buildColorStrip() {
+  const strip = document.getElementById('colorStrip');
+  strip.innerHTML = COLORS.map(c => `<div class="color-swatch" data-color="${c}" style="background:${c}" onclick="selectColor(this)" title="${c}"></div>`).join('');
+  selectColorByValue('#1A1A1A');
+}
+
+function selectEmoji(el) {
+  document.querySelectorAll('.emoji-opt').forEach(e => e.classList.remove('selected'));
+  el.classList.add('selected');
+  document.getElementById('profileAvatar').childNodes[0].textContent = el.dataset.emoji;
+}
+
+function setSelectedEmoji(emoji) {
+  document.querySelectorAll('.emoji-opt').forEach(e => {
+    e.classList.toggle('selected', e.dataset.emoji === emoji);
+  });
+}
+
+function selectColor(el) {
+  document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
+  el.classList.add('selected');
+  document.getElementById('profileBanner').style.background = el.dataset.color;
+}
+
+function selectColorByValue(c) {
+  const el = document.querySelector(`.color-swatch[data-color="${c}"]`);
+  if (el) selectColor(el);
+}
+
+function setSelectedColor(color) {
+  const el = document.querySelector(`.color-swatch[data-color="${color}"]`);
+  if (el) { selectColor(el); } else { document.getElementById('profileBanner').style.background = color; }
+}
+
+// Bio char counter
+document.getElementById('bioInput').addEventListener('input', function() {
+  document.getElementById('bioCount').textContent = this.value.length;
+});
+
+/* ══════════════════════════════════════════
+   FRIEND SEARCH
+══════════════════════════════════════════ */
+let searchTimer = null;
+async function searchUsers() {
+  const q = document.getElementById('friendSearchInput').value.trim();
+  const results = document.getElementById('searchResults');
+  if (q.length < 2) { results.classList.remove('visible'); return; }
+
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(async () => {
+    const client = ZenAuth.getSupabaseClient();
+    const { data, error } = await client
+      .from('profiles')
+      .select('id, username, display_name, bio, avatar_emoji, avatar_color, university, course')
+      .or(`username.ilike.%${q}%,display_name.ilike.%${q}%`)
+      .neq('id', myUserId)
+      .eq('is_public', true)
+      .limit(8);
+
+    if (error || !data?.length) {
+      results.innerHTML = '<div class="empty-msg" style="padding:14px">No users found.</div>';
+      results.classList.add('visible');
+      return;
+    }
+
+    // Get existing relationship statuses
+    const ids = data.map(u => u.id);
+    const { data: reqs } = await client
+      .from('friend_requests')
+      .select('sender_id, receiver_id, status')
+      .or(`sender_id.eq.${myUserId},receiver_id.eq.${myUserId}`);
+
+    const reqMap = {};
+    (reqs || []).forEach(r => {
+      const otherId = r.sender_id === myUserId ? r.receiver_id : r.sender_id;
+      reqMap[otherId] = { status: r.status, isSender: r.sender_id === myUserId };
+    });
+
+    results.innerHTML = data.map(u => {
+      const rel = reqMap[u.id];
+      let actionHtml = '';
+      if (rel) {
+        if (rel.status === 'accepted') {
+          actionHtml = `<span class="status-pill sp-accepted">✓ Friends</span>`;
+        } else if (rel.status === 'pending') {
+          actionHtml = rel.isSender
+            ? `<span class="status-pill sp-pending">Sent</span>`
+            : `<button class="btn btn-primary btn-sm" onclick="acceptRequest('${u.id}')">Accept</button>`;
+        } else {
+          actionHtml = `<button class="btn btn-ghost btn-sm" onclick="sendRequest('${u.id}')">+ Add</button>`;
+        }
+      } else {
+        actionHtml = `<button class="btn btn-ghost btn-sm" onclick="openSendRequest('${u.id}','${esc(u.display_name||u.username)}')">+ Add friend</button>`;
+      }
+      return `<div class="user-row">
+        <div class="user-mini-avatar" style="background:${u.avatar_color||'#1A1A1A'}">${u.avatar_emoji||''}</div>
+        <div class="user-row-info">
+          <div class="user-row-name">${esc(u.display_name||u.username)}</div>
+          <div class="user-row-username">@${esc(u.username)}</div>
+          ${u.university?`<div class="user-row-meta">${esc(u.university)}${u.course?' · '+esc(u.course):''}</div>`:''}
+        </div>
+        <div class="user-row-actions">${actionHtml}</div>
+      </div>`;
+    }).join('');
+    results.classList.add('visible');
+  }, 350);
+}
+
+/* ══════════════════════════════════════════
+   SEND / MANAGE REQUESTS
+══════════════════════════════════════════ */
+let pendingSendId = null;
+
+function openSendRequest(userId, name) {
+  pendingSendId = userId;
+  const msg = prompt(`Send a friend request to ${name}?\n\nAdd a message (optional):`);
+  if (msg === null) return; // cancelled
+  sendRequest(userId, msg);
+}
+
+async function sendRequest(receiverId, message = '') {
+  const client = ZenAuth.getSupabaseClient();
+
+  // Check profile exists
+  if (!myProfile) { showToast('Save your profile first!', 'error'); switchTab('settings'); return; }
+
+  const { error } = await client.from('friend_requests').insert({
+    sender_id: myUserId,
+    receiver_id: receiverId,
+    message: message || '',
+    status: 'pending'
+  });
+
+  if (error) {
+    if (error.code === '23505') showToast('Request already sent!', 'error');
+    else showToast(error.message, 'error');
+    return;
+  }
+
+  showToast('Friend request sent! ', 'success');
+  searchUsers(); // refresh search results
+  loadFriendData();
+}
+
+async function acceptRequest(senderId) {
+  const client = ZenAuth.getSupabaseClient();
+  const { error } = await client
+    .from('friend_requests')
+    .update({ status: 'accepted' })
+    .eq('sender_id', senderId)
+    .eq('receiver_id', myUserId);
+
+  if (error) { showToast(error.message, 'error'); return; }
+  showToast('Friend request accepted! ', 'success');
+  loadFriendData(); searchUsers();
+}
+
+async function declineRequest(senderId) {
+  const client = ZenAuth.getSupabaseClient();
+  const { error } = await client
+    .from('friend_requests')
+    .update({ status: 'declined' })
+    .eq('sender_id', senderId)
+    .eq('receiver_id', myUserId);
+
+  if (error) { showToast(error.message, 'error'); return; }
+  showToast('Request declined.'); loadFriendData();
+}
+
+async function cancelRequest(receiverId) {
+  const client = ZenAuth.getSupabaseClient();
+  const { error } = await client
+    .from('friend_requests')
+    .delete()
+    .eq('sender_id', myUserId)
+    .eq('receiver_id', receiverId);
+
+  if (error) { showToast(error.message, 'error'); return; }
+  showToast('Request cancelled.'); loadFriendData(); searchUsers();
+}
+
+async function unfriend(friendId) {
+  if (!confirm('Remove this friend?')) return;
+  const client = ZenAuth.getSupabaseClient();
+  await client.from('friend_requests').delete()
+    .or(`and(sender_id.eq.${myUserId},receiver_id.eq.${friendId}),and(sender_id.eq.${friendId},receiver_id.eq.${myUserId})`);
+  showToast('Friend removed.'); loadFriendData();
+}
+
+/* ══════════════════════════════════════════
+   LOAD FRIEND DATA
+══════════════════════════════════════════ */
+async function loadFriendData() {
+  const client = ZenAuth.getSupabaseClient();
+
+  const { data: allReqs } = await client
+    .from('friend_requests')
+    .select(`
+      id, status, message, created_at, sender_id, receiver_id,
+      sender:profiles!friend_requests_sender_id_fkey(id,username,display_name,avatar_emoji,avatar_color,university,course),
+      receiver:profiles!friend_requests_receiver_id_fkey(id,username,display_name,avatar_emoji,avatar_color,university,course)
+    `)
+    .or(`sender_id.eq.${myUserId},receiver_id.eq.${myUserId}`)
+    .order('created_at', { ascending: false });
+
+  const reqs = allReqs || [];
+
+  const friends  = reqs.filter(r => r.status === 'accepted');
+  const incoming = reqs.filter(r => r.status === 'pending' && r.receiver_id === myUserId);
+  const sent     = reqs.filter(r => r.status === 'pending' && r.sender_id === myUserId);
+
+  // Update stats
+  document.getElementById('statFriends').textContent = friends.length;
+  document.getElementById('statPending').textContent = incoming.length;
+  document.getElementById('statSent').textContent = sent.length;
+
+  // Badge
+  const badge = document.getElementById('reqBadge');
+  badge.style.display = incoming.length > 0 ? 'inline-flex' : 'none';
+  badge.textContent = incoming.length;
+
+  // Friends list
+  const fl = document.getElementById('friendsList');
+  if (!friends.length) {
+    fl.innerHTML = '<div class="empty-msg" style="padding:16px">No friends yet.</div>';
+  } else {
+    fl.innerHTML = friends.map(r => {
+      const friend = r.sender_id === myUserId ? r.receiver : r.sender;
+      if (!friend) return '';
+      return `<div class="req-card">
+        <div class="user-row">
+          <div class="user-mini-avatar" style="background:${friend.avatar_color||'#1A1A1A'}">${friend.avatar_emoji||''}</div>
+          <div class="user-row-info">
+            <div class="user-row-name">${esc(friend.display_name||friend.username)}</div>
+            <div class="user-row-username">@${esc(friend.username)}</div>
+            ${friend.university?`<div class="user-row-meta">${esc(friend.university)}${friend.course?' · '+esc(friend.course):''}</div>`:''}
+          </div>
+          <div class="user-row-actions">
+            <span class="status-pill sp-accepted">✓ Friends</span>
+            <a class="btn btn-primary btn-sm" href="chat.html?with=${friend.id}" style="text-decoration:none"> Message</a>
+            <button class="btn btn-ghost btn-sm" onclick="unfriend('${friend.id}')" style="color:var(--error);border-color:var(--error)">Remove</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Incoming requests
+  const ir = document.getElementById('incomingRequests');
+  if (!incoming.length) {
+    ir.innerHTML = '<div class="empty-msg" style="padding:16px">No incoming requests.</div>';
+  } else {
+    ir.innerHTML = incoming.map(r => {
+      const sender = r.sender;
+      if (!sender) return '';
+      const ago = timeAgo(r.created_at);
+      return `<div class="req-card">
+        <div class="user-row">
+          <div class="user-mini-avatar" style="background:${sender.avatar_color||'#1A1A1A'}">${sender.avatar_emoji||''}</div>
+          <div class="user-row-info">
+            <div class="user-row-name">${esc(sender.display_name||sender.username)}</div>
+            <div class="user-row-username">@${esc(sender.username)}</div>
+          </div>
+          <div class="user-row-actions">
+            <button class="btn btn-primary btn-sm" onclick="acceptRequest('${sender.id}')">Accept ✓</button>
+            <button class="btn btn-ghost btn-sm" onclick="declineRequest('${sender.id}')">Decline</button>
+          </div>
+        </div>
+        ${r.message?`<div class="req-msg">"${esc(r.message)}"</div>`:''}
+        <div class="req-meta"><span>Received ${ago}</span></div>
+      </div>`;
+    }).join('');
+  }
+
+  // Sent requests
+  const sr = document.getElementById('sentRequests');
+  if (!sent.length) {
+    sr.innerHTML = '<div class="empty-msg" style="padding:16px">No pending sent requests.</div>';
+  } else {
+    sr.innerHTML = sent.map(r => {
+      const receiver = r.receiver;
+      if (!receiver) return '';
+      const ago = timeAgo(r.created_at);
+      return `<div class="req-card">
+        <div class="user-row">
+          <div class="user-mini-avatar" style="background:${receiver.avatar_color||'#1A1A1A'}">${receiver.avatar_emoji||''}</div>
+          <div class="user-row-info">
+            <div class="user-row-name">${esc(receiver.display_name||receiver.username)}</div>
+            <div class="user-row-username">@${esc(receiver.username)}</div>
+          </div>
+          <div class="user-row-actions">
+            <span class="status-pill sp-pending">Pending</span>
+            <button class="btn btn-ghost btn-sm" onclick="cancelRequest('${receiver.id}')">Cancel</button>
+          </div>
+        </div>
+        ${r.message?`<div class="req-msg">"${esc(r.message)}"</div>`:''}
+        <div class="req-meta"><span>Sent ${ago}</span></div>
+      </div>`;
+    }).join('');
+  }
+}
+
+/* ══════════════════════════════════════════
+   UTILS
+══════════════════════════════════════════ */
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function timeAgo(dateStr) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs/24)}d ago`;
+}
+
+async function confirmDeleteAccount() {
+  const conf = prompt('Type DELETE to permanently delete your account:');
+  if (conf !== 'DELETE') { showToast('Account deletion cancelled.'); return; }
+  showToast('This would delete your account. Contact support to complete.', 'error', 6000);
+}
+
+// Real-time: listen for incoming requests
+(async () => {
+  await ZenAuth.initSupabase();
+  const client = ZenAuth.getSupabaseClient();
+  if (!client) return;
+  client.channel('friend-requests')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'friend_requests' }, () => {
+      loadFriendData();
+    })
+    .subscribe();
+})();
+</script>
+</body>
+</html>

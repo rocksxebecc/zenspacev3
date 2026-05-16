@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zenspace — Reset Password</title>
+  <link rel="stylesheet" href="assets/zenspace.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="assets/supabase.js"></script>
+  <style>
+    .auth-box .subtitle { margin-bottom: 32px; }
+    .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-muted); font-size: .8rem; text-decoration: none; margin-bottom: 32px; transition: color var(--t); font-weight: 600; letter-spacing: .02em; }
+    .back-link:hover { color: var(--ink); }
+    .back-link svg { width: 14px; height: 14px; stroke: currentColor; fill: none; }
+    .success-state { display: none; text-align: center; animation: slide-up .5s ease both; }
+    .success-state.visible { display: block; }
+    .form-state.hidden { display: none; }
+    .success-icon { width: 56px; height: 56px; border-radius: 50%; background: var(--surface-2); border: 1.5px solid var(--border); margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; }
+    .success-icon svg { width: 26px; height: 26px; stroke: var(--ink); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .success-state h3 { font-family: var(--font-serif); font-size: 1.7rem; color: var(--ink); margin-bottom: 10px; }
+    .success-state p { font-size: .87rem; max-width: 300px; margin: 0 auto 28px; line-height: 1.65; }
+  </style>
+</head>
+<body>
+  <div class="auth-root">
+    <div class="brand-panel">
+      <a class="brand" href="index.html">
+        <span class="brand-icon">
+          <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        </span>
+        <span class="brand-name">Zenspace</span>
+      </a>
+      <div class="hero-copy">
+        <h1>Happens to<br /><em>everyone.</em><br />No worries.</h1>
+        <p>We'll send you a secure link to reset your password. It only takes a moment.</p>
+      </div>
+    </div>
+
+    <div class="auth-panel">
+      <div class="auth-box">
+        <a class="back-link" href="login.html">
+          <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+          Back to sign in
+        </a>
+
+        <div class="form-state" id="formState">
+          <h2>Reset your password</h2>
+          <p class="subtitle">Enter the email address linked to your account and we'll send you a reset link.</p>
+
+          <form id="forgotForm" novalidate>
+            <div class="field">
+              <label for="email">Email address</label>
+              <div class="input-wrap">
+                <input class="field-input" type="email" id="email" name="email" placeholder="you@university.edu" autocomplete="email" aria-describedby="emailError" />
+                <svg class="field-icon" viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="M2 7l10 7 10-7"/></svg>
+              </div>
+              <p class="field-error" id="emailError" role="alert">Please enter a valid email address.</p>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-full" id="submitBtn" aria-busy="false">
+              <span class="btn-label">Send reset link</span>
+              <span class="btn-spinner">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                  <path d="M12 2a10 10 0 0 1 10 10" opacity=".3"/>
+                  <path d="M12 2a10 10 0 0 1 10 10"/>
+                </svg>
+              </span>
+            </button>
+          </form>
+
+          <p class="auth-foot" style="margin-top:22px;">Remembered it? <a href="login.html">Sign in</a></p>
+        </div>
+
+        <div class="success-state" id="successState">
+          <div class="success-icon">
+            <svg viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          </div>
+          <h3>Check your inbox</h3>
+          <p>We've sent a password reset link to <strong id="sentEmail"></strong>. It expires in 15 minutes.</p>
+          <a class="btn btn-ghost" href="login.html">Back to sign in</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="assets/zenspace.js"></script>
+  <script>
+    const form      = document.getElementById('forgotForm');
+    const emailEl   = document.getElementById('email');
+    const emailErr  = document.getElementById('emailError');
+    const submitBtn = document.getElementById('submitBtn');
+
+    emailEl.addEventListener('input', () => clearFieldError(emailEl, emailErr));
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      if (!validateEmail(emailEl.value)) { setFieldError(emailEl, emailErr, true); return; }
+
+      setBtnLoading(submitBtn, true);
+
+      const { error } = await ZenAuth.sendPasswordReset(emailEl.value.trim().toLowerCase());
+
+      setBtnLoading(submitBtn, false);
+
+      if (error) { showToast(error.message, 'error'); return; }
+
+      document.getElementById('sentEmail').textContent = emailEl.value.trim();
+      document.getElementById('formState').classList.add('hidden');
+      document.getElementById('successState').classList.add('visible');
+    });
+  </script>
+</body>
+</html>

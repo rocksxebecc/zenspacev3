@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zenspace — Messages</title>
+  <link rel="stylesheet" href="assets/zenspace.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="assets/supabase.js"></script>
+  <style>
+    body { background: var(--bg); height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
+
+    /* ── NAV ── */
+    .chat-nav { height: 56px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; gap: 14px; flex-shrink: 0; z-index: 10; }
+    .chat-nav .brand { display: flex; align-items: center; gap: 8px; text-decoration: none; }
+    .chat-nav .brand-icon { width: 28px; height: 28px; background: var(--ink); border-radius: 7px; display: grid; place-items: center; }
+    .chat-nav .brand-icon svg { width: 14px; height: 14px; stroke: #fff; fill: none; }
+    .chat-nav .brand-name { font-family: var(--font-serif); font-size: 1rem; color: var(--ink); }
+    .nav-back { color: var(--ink-muted); text-decoration: none; font-size: .82rem; font-weight: 600; display: flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: var(--r-sm); border: 1.5px solid var(--border); transition: all var(--t); }
+    .nav-back:hover { color: var(--ink); border-color: var(--border-strong); background: var(--surface-2); }
+    .nav-spacer { flex: 1; }
+    .nav-avatar-sm { width: 30px; height: 30px; border-radius: 50%; background: var(--ink); display: grid; place-items: center; font-size: .68rem; font-weight: 700; color: #fff; flex-shrink: 0; cursor: pointer; }
+
+    /* ── CHAT LAYOUT ── */
+    .chat-root { flex: 1; display: grid; grid-template-columns: 300px 1fr; overflow: hidden; }
+
+    /* ── SIDEBAR ── */
+    .chat-sidebar { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+    .sidebar-top { padding: 14px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .sidebar-top h2 { font-family: var(--font-serif); font-size: 1.1rem; color: var(--ink); margin-bottom: 10px; }
+    .new-chat-btn { width: 100%; height: 36px; border: 1.5px dashed var(--border-strong); border-radius: var(--r-md); background: transparent; color: var(--ink-muted); font-family: var(--font-sans); font-size: .78rem; font-weight: 600; cursor: pointer; transition: all var(--t); display: flex; align-items: center; justify-content: center; gap: 6px; }
+    .new-chat-btn:hover { border-color: var(--ink); color: var(--ink); background: var(--surface-2); }
+    .conv-search { position: relative; margin-top: 10px; }
+    .conv-search input { width: 100%; height: 34px; padding: 0 12px 0 34px; border: 1.5px solid var(--border); border-radius: var(--r-sm); background: var(--bg); color: var(--ink); font-family: var(--font-sans); font-size: .8rem; outline: none; transition: border-color var(--t); }
+    .conv-search input:focus { border-color: var(--ink); }
+    .conv-search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; stroke: var(--ink-faint); fill: none; pointer-events: none; }
+    .conv-list { flex: 1; overflow-y: auto; }
+    .conv-item { display: flex; align-items: center; gap: 10px; padding: 12px 16px; cursor: pointer; border-bottom: 1px solid var(--border-light); transition: background var(--t); position: relative; }
+    .conv-item:hover { background: var(--surface-2); }
+    .conv-item.active { background: var(--ink); }
+    .conv-item.active .conv-name, .conv-item.active .conv-preview, .conv-item.active .conv-time { color: #fff; }
+    .conv-item.active .conv-preview { color: rgba(255,255,255,.55); }
+    .conv-item.active .conv-time { color: rgba(255,255,255,.45); }
+    .conv-avatar { width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; position: relative; }
+    .conv-online-dot { position: absolute; bottom: 1px; right: 1px; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); border: 2px solid var(--surface); }
+    .conv-info { flex: 1; min-width: 0; }
+    .conv-name { font-size: .84rem; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .conv-preview { font-size: .72rem; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+    .conv-time { font-size: .65rem; color: var(--ink-faint); flex-shrink: 0; }
+    .conv-unread { width: 18px; height: 18px; border-radius: 50%; background: var(--ink); color: #fff; font-size: .6rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .conv-item.active .conv-unread { background: #fff; color: var(--ink); }
+
+    /* ── MAIN CHAT AREA ── */
+    .chat-main { display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
+
+    /* Empty state */
+    .chat-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--ink-faint); gap: 14px; }
+    .chat-empty svg { width: 48px; height: 48px; stroke: var(--border-strong); fill: none; stroke-width: 1.2; }
+    .chat-empty h3 { font-family: var(--font-serif); font-size: 1.2rem; color: var(--ink-muted); }
+    .chat-empty p { font-size: .84rem; max-width: 280px; text-align: center; line-height: 1.6; }
+
+    /* Chat header */
+    .chat-header { height: 58px; border-bottom: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; padding: 0 20px; gap: 12px; flex-shrink: 0; }
+    .chat-header-avatar { width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
+    .chat-header-info { flex: 1; min-width: 0; }
+    .chat-header-name { font-size: .92rem; font-weight: 600; color: var(--ink); font-family: var(--font-serif); }
+    .chat-header-sub { font-size: .7rem; color: var(--ink-faint); margin-top: 1px; }
+    .chat-header-actions { display: flex; gap: 8px; }
+    .hdr-btn { width: 32px; height: 32px; border-radius: var(--r-sm); background: none; border: 1.5px solid var(--border); color: var(--ink-muted); cursor: pointer; display: grid; place-items: center; transition: all var(--t); }
+    .hdr-btn:hover { background: var(--surface-2); color: var(--ink); border-color: var(--border-strong); }
+    .hdr-btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; }
+
+    /* Messages area */
+    .messages-area { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 4px; scroll-behavior: smooth; }
+    .messages-area::-webkit-scrollbar { width: 4px; }
+    .messages-area::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 2px; }
+
+    /* Date divider */
+    .date-divider { display: flex; align-items: center; gap: 10px; margin: 12px 0 8px; }
+    .date-divider::before, .date-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+    .date-divider span { font-size: .65rem; color: var(--ink-faint); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+
+    /* Message bubbles */
+    .msg-row { display: flex; align-items: flex-end; gap: 8px; margin: 1px 0; }
+    .msg-row.mine { flex-direction: row-reverse; }
+    .msg-row.mine .msg-avatar { display: none; }
+
+    .msg-avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: .72rem; flex-shrink: 0; margin-bottom: 2px; }
+
+    .msg-group { display: flex; flex-direction: column; gap: 2px; max-width: 68%; }
+    .msg-row.mine .msg-group { align-items: flex-end; }
+
+    .msg-sender-name { font-size: .65rem; font-weight: 700; color: var(--ink-faint); letter-spacing: .04em; margin-bottom: 3px; padding-left: 2px; }
+
+    .msg-bubble { padding: 9px 13px; border-radius: 16px; font-size: .86rem; line-height: 1.55; color: var(--ink); background: var(--surface); border: 1px solid var(--border); word-break: break-word; position: relative; cursor: default; }
+    .msg-bubble.mine { background: var(--ink); color: #fff; border: none; border-bottom-right-radius: 4px; }
+    .msg-bubble:not(.mine) { border-bottom-left-radius: 4px; }
+    .msg-row.mine .msg-bubble { border-bottom-right-radius: 4px; }
+
+    .msg-bubble.deleted { opacity: .45; font-style: italic; font-size: .8rem; }
+
+    /* Tail shapes */
+    .msg-row:not(.mine) .msg-group .msg-bubble:first-child { border-bottom-left-radius: 4px; }
+    .msg-row:not(.mine) .msg-group .msg-bubble:not(:first-child) { border-top-left-radius: 4px; border-bottom-left-radius: 4px; }
+    .msg-row.mine .msg-group .msg-bubble:first-child { border-bottom-right-radius: 4px; }
+    .msg-row.mine .msg-group .msg-bubble:not(:first-child) { border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
+
+    /* Message meta */
+    .msg-meta { display: flex; align-items: center; gap: 5px; margin-top: 2px; padding: 0 2px; }
+    .msg-time { font-size: .62rem; color: var(--ink-faint); }
+    .msg-status { font-size: .62rem; color: var(--ink-faint); }
+
+    /* Hover actions */
+    .msg-actions { position: absolute; top: 50%; transform: translateY(-50%); display: none; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 3px; box-shadow: 0 2px 8px rgba(0,0,0,.1); z-index: 10; }
+    .msg-actions.visible { display: flex; }
+    .msg-row.mine .msg-actions { right: calc(100% + 6px); left: auto; }
+    .msg-row:not(.mine) .msg-actions { left: calc(100% + 6px); right: auto; }
+    .msg-act-btn { width: 26px; height: 26px; border: none; background: transparent; cursor: pointer; border-radius: 4px; display: grid; place-items: center; color: var(--ink-muted); transition: background var(--t), color var(--t); }
+    .msg-act-btn:hover { background: var(--surface-2); color: var(--ink); }
+    .msg-act-btn.danger:hover { background: #fee2e2; color: #ef4444; }
+    .msg-act-btn svg { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .unsend-popup { position: fixed; background: var(--surface); border: 1.5px solid var(--border); border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.14); padding: 14px 16px; z-index: 9999; width: 210px; animation: pop-in .12s ease; }
+    .unsend-popup p { font-size: .82rem; color: var(--ink); font-weight: 600; margin: 0 0 12px; line-height: 1.4; }
+    .unsend-popup-btns { display: flex; gap: 8px; }
+    .unsend-cancel-btn { flex: 1; height: 32px; border-radius: 7px; border: 1.5px solid var(--border); background: transparent; color: var(--ink-muted); font-size: .78rem; font-weight: 600; cursor: pointer; font-family: var(--font-sans); }
+    .unsend-ok-btn { flex: 1; height: 32px; border-radius: 7px; border: none; background: #ef4444; color: #fff; font-size: .78rem; font-weight: 700; cursor: pointer; font-family: var(--font-sans); }
+    .unsend-ok-btn:hover { background: #dc2626; }
+    @keyframes pop-in { from { opacity:0; transform:scale(.92); } to { opacity:1; transform:scale(1); } }
+
+    /* Image messages */
+    .msg-image { max-width: 240px; border-radius: 10px; overflow: hidden; cursor: zoom-in; }
+    .msg-image img { width: 100%; display: block; }
+
+    /* Typing indicator */
+    .typing-indicator { display: none; padding: 6px 20px; font-size: .75rem; color: var(--ink-faint); font-style: italic; flex-shrink: 0; }
+    .typing-indicator.visible { display: block; }
+    .typing-dots { display: inline-flex; gap: 3px; vertical-align: middle; }
+    .typing-dots span { width: 5px; height: 5px; border-radius: 50%; background: var(--ink-faint); animation: typingBounce .9s ease infinite; }
+    .typing-dots span:nth-child(2) { animation-delay: .15s; }
+    .typing-dots span:nth-child(3) { animation-delay: .3s; }
+    @keyframes typingBounce { 0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-4px)} }
+
+    /* Input area */
+    .chat-input-wrap { padding: 12px 16px; border-top: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
+    .chat-input-row { display: flex; align-items: flex-end; gap: 8px; background: var(--bg); border: 1.5px solid var(--border); border-radius: 14px; padding: 8px 8px 8px 14px; transition: border-color var(--t); }
+    .chat-input-row:focus-within { border-color: var(--ink); }
+    .chat-textarea { flex: 1; border: none; background: transparent; color: var(--ink); font-family: var(--font-sans); font-size: .88rem; line-height: 1.5; resize: none; outline: none; max-height: 120px; min-height: 22px; overflow-y: auto; }
+    .chat-textarea::placeholder { color: var(--ink-faint); }
+    .input-actions { display: flex; gap: 4px; align-items: flex-end; flex-shrink: 0; }
+    .inp-btn { width: 32px; height: 32px; border-radius: 8px; border: none; background: transparent; color: var(--ink-muted); cursor: pointer; display: grid; place-items: center; transition: all var(--t); }
+    .inp-btn:hover { background: var(--surface-2); color: var(--ink); }
+    .inp-btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; }
+    .send-btn { width: 34px; height: 34px; border-radius: 10px; border: none; background: var(--ink); color: #fff; cursor: pointer; display: grid; place-items: center; transition: all var(--t); flex-shrink: 0; }
+    .send-btn:hover { background: #2A2A2A; transform: scale(1.05); }
+    .send-btn:disabled { opacity: .4; transform: none; cursor: not-allowed; }
+    .send-btn svg { width: 15px; height: 15px; stroke: #fff; fill: none; stroke-width: 2; stroke-linecap: round; }
+
+    /* Emoji picker */
+    .emoji-picker-wrap { position: absolute; bottom: 70px; right: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px; box-shadow: var(--shadow-md); display: none; z-index: 100; width: 280px; }
+    .emoji-picker-wrap.open { display: block; animation: slide-up .15s ease; }
+    .emoji-picker-grid { display: flex; flex-wrap: wrap; gap: 4px; }
+    .ep-emoji { width: 32px; height: 32px; border-radius: 6px; border: none; background: transparent; font-size: 1rem; cursor: pointer; display: grid; place-items: center; transition: background var(--t); }
+    .ep-emoji:hover { background: var(--surface-2); }
+
+    /* New conversation modal */
+    .new-conv-panel { position: absolute; top: 56px; left: 0; right: 0; bottom: 0; background: var(--surface); z-index: 50; display: none; flex-direction: column; }
+    .new-conv-panel.open { display: flex; animation: fade-in .15s ease; }
+    .ncp-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+    .ncp-header h3 { font-family: var(--font-serif); font-size: 1rem; color: var(--ink); }
+    .ncp-search { padding: 14px 20px; border-bottom: 1px solid var(--border); position: relative; }
+    .ncp-search input { width: 100%; height: 40px; border: 1.5px solid var(--border); border-radius: 10px; padding: 0 14px 0 38px; background: var(--bg); color: var(--ink); font-family: var(--font-sans); font-size: .86rem; outline: none; transition: border-color var(--t); }
+    .ncp-search input:focus { border-color: var(--ink); }
+    .ncp-search svg { position: absolute; left: 32px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; stroke: var(--ink-faint); fill: none; pointer-events: none; }
+    .ncp-results { flex: 1; overflow-y: auto; }
+    .ncp-user-row { display: flex; align-items: center; gap: 12px; padding: 12px 20px; cursor: pointer; border-bottom: 1px solid var(--border-light); transition: background var(--t); }
+    .ncp-user-row:hover { background: var(--surface-2); }
+    .ncp-user-avatar { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
+    .ncp-user-info { flex: 1; }
+    .ncp-user-name { font-size: .86rem; font-weight: 600; color: var(--ink); }
+    .ncp-user-sub { font-size: .72rem; color: var(--ink-faint); margin-top: 1px; }
+
+    /* Lightbox */
+    .lightbox { display: none; position: fixed; inset: 0; z-index: 2000; background: rgba(0,0,0,.92); align-items: center; justify-content: center; cursor: zoom-out; }
+    .lightbox.open { display: flex; animation: fade-in .15s ease; }
+    .lightbox img { max-width: 90vw; max-height: 88vh; border-radius: 12px; }
+
+    @media (max-width: 700px) {
+      .chat-root { grid-template-columns: 1fr; }
+      .chat-sidebar { display: none; }
+      .chat-sidebar.show { display: flex; position: absolute; inset: 56px 0 0 0; z-index: 30; }
+      body { overflow: auto; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="chat-nav">
+  <a class="brand" href="index.html">
+    <span class="brand-icon"><svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></span>
+    <span class="brand-name">Zenspace</span>
+  </a>
+  <a class="nav-back" href="dashboard.html">← Dashboard</a>
+  <span class="nav-spacer"></span>
+  <a href="profile.html" class="nav-back" style="border:none;padding:0 6px">👤 Profile</a>
+  <div class="nav-avatar-sm" id="navAvatar">?</div>
+</nav>
+
+<!-- CHAT ROOT -->
+<div class="chat-root" style="position:relative">
+
+  <!-- SIDEBAR -->
+  <div class="chat-sidebar" id="chatSidebar">
+    <div class="sidebar-top">
+      <h2>Messages</h2>
+      <button class="new-chat-btn" onclick="openNewConv()">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New conversation
+      </button>
+      <div class="conv-search">
+        <svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input type="text" id="convSearchInput" placeholder="Search conversations…" oninput="filterConvs()" />
+      </div>
+    </div>
+    <div class="conv-list" id="convList">
+      <div style="padding:20px;text-align:center;color:var(--ink-faint);font-size:.82rem">Loading…</div>
+    </div>
+  </div>
+
+  <!-- NEW CONV PANEL (slides over sidebar) -->
+  <div class="new-conv-panel" id="newConvPanel">
+    <div class="ncp-header">
+      <button onclick="closeNewConv()" style="border:none;background:none;cursor:pointer;color:var(--ink-muted);font-size:1.2rem;line-height:1;padding:0 4px">←</button>
+      <h3>Start a conversation</h3>
+    </div>
+    <div class="ncp-search">
+      <svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input type="text" id="newConvSearch" placeholder="Search friends by @username or name…" oninput="searchFriends()" autofocus />
+    </div>
+    <div class="ncp-results" id="newConvResults">
+      <div style="padding:20px;text-align:center;color:var(--ink-faint);font-size:.82rem">Type to search your friends…</div>
+    </div>
+  </div>
+
+  <!-- MAIN CHAT -->
+  <div class="chat-main" id="chatMain">
+
+    <!-- Empty state -->
+    <div class="chat-empty" id="chatEmpty">
+      <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+      <h3>Your messages</h3>
+      <p>Select a conversation on the left or start a new one to chat with your friends.</p>
+      <button class="btn btn-primary btn-sm" onclick="openNewConv()">+ Start chatting</button>
+    </div>
+
+    <!-- Active conversation -->
+    <div id="chatActive" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+
+      <!-- Header -->
+      <div class="chat-header">
+        <div class="chat-header-avatar" id="chatHeaderAvatar"></div>
+        <div class="chat-header-info">
+          <div class="chat-header-name" id="chatHeaderName">—</div>
+          <div class="chat-header-sub" id="chatHeaderSub">@username</div>
+        </div>
+        <div class="chat-header-actions">
+          <button class="hdr-btn" title="View profile" onclick="viewFriendProfile()" id="viewProfileBtn"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg></button>
+          <button class="hdr-btn" title="Clear chat" onclick="clearChatView()"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg></button>
+        </div>
+      </div>
+
+      <!-- Messages -->
+      <div class="messages-area" id="messagesArea"></div>
+
+      <!-- Typing indicator -->
+      <div class="typing-indicator" id="typingIndicator">
+        <span id="typingName">Someone</span> is typing <span class="typing-dots"><span></span><span></span><span></span></span>
+      </div>
+
+      <!-- Input -->
+      <div class="chat-input-wrap" style="position:relative">
+        <!-- Emoji picker -->
+        <div class="emoji-picker-wrap" id="emojiPicker"></div>
+
+        <div class="chat-input-row">
+          <textarea class="chat-textarea" id="msgInput" placeholder="Type a message…" rows="1"
+            onkeydown="handleKeydown(event)" oninput="handleInput()" onpaste="handlePaste(event)"></textarea>
+          <div class="input-actions">
+            <button class="inp-btn" title="Emoji" onclick="toggleEmoji()"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></button>
+            <label class="inp-btn" title="Send image" style="cursor:pointer"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><input type="file" accept="image/*" style="display:none" onchange="sendImage(event)" /></label>
+            <label class="inp-btn" title="Send file" style="cursor:pointer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.41 17.41a2 2 0 01-2.83-2.83l8.49-8.48"/></svg><input type="file" accept="*/*" style="display:none" onchange="sendFile(event)" /></label>
+            <button class="send-btn" id="sendBtn" onclick="sendMessage()" disabled><svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
+          </div>
+        </div>
+        <div style="font-size:.65rem;color:var(--ink-faint);padding:4px 4px 0;display:flex;justify-content:space-between">
+          <span>Enter to send · Shift+Enter for new line</span>
+          <span id="charCount">0/4000</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox" id="lightbox" onclick="this.classList.remove('open')"><img id="lightboxImg" src="" alt="" /></div>
+
+<div class="toast" id="toast"></div>
+<script src="assets/zenspace.js"></script>
+<script>
+/* ═══════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════ */
+let myUserId   = null;
+let myProfile  = null;
+let activeConv = null;      // { id, friendProfile }
+let conversations = [];
+let realtimeChannel = null;
+let typingChannel   = null;
+let typingTimer     = null;
+let msgCache        = {};   // convId → [messages]
+let friendCache     = {};   // userId → profile
+
+const CHAT_EMOJIS = ['😀','😂','😍','🥰','😎','🤔','😅','😭','🙏','👍','👎','❤️','','','💯','','❌','👀','😢','🤣','😊','🤩','💪','','','','','⭐'];
+
+/* ═══════════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════════ */
+(async () => {
+  await ZenAuth.initSupabase();
+  const session = await ZenAuth.getSession();
+  if (!session) { window.location.href = 'login.html'; return; }
+  myUserId = session.user.id;
+
+  const client = ZenAuth.getSupabaseClient();
+  const { data: prof } = await client.from('profiles').select('*').eq('id', myUserId).single();
+  myProfile = prof || {};
+  document.getElementById('navAvatar').textContent = prof?.avatar_emoji || prof?.display_name?.[0]?.toUpperCase() || '?';
+
+  buildEmojiPicker();
+  await loadConversations();
+
+  // Check URL param for direct open
+  const params = new URLSearchParams(location.search);
+  if (params.get('with')) await openOrCreateConvWith(params.get('with'));
+})();
+
+/* ═══════════════════════════════════════════════
+   CONVERSATIONS LIST
+═══════════════════════════════════════════════ */
+async function loadConversations() {
+  const client = ZenAuth.getSupabaseClient();
+
+  // Step 1: Get all conversation IDs I'm in (only my rows — always works under RLS)
+  const { data: memberships, error: memErr } = await client
+    .from('conversation_members')
+    .select('conversation_id, last_read_at')
+    .eq('user_id', myUserId);
+
+  if (memErr) { console.error('loadConversations: memberships error', memErr); renderConvList([]); return; }
+  if (!memberships?.length) { renderConvList([]); return; }
+
+  const convIds = memberships.map(m => m.conversation_id);
+
+  // Step 2: Get conversations ordered by updated_at (no nested relations — avoids RLS issues)
+  const { data: convs, error: convsErr } = await client
+    .from('conversations')
+    .select('id, updated_at')
+    .in('id', convIds)
+    .order('updated_at', { ascending: false });
+
+  if (convsErr || !convs?.length) { renderConvList([]); return; }
+
+  // Step 3: Get ALL members of these conversations as a flat query
+  // The RPC function create_direct_conversation inserts both members,
+  // and the "See co-members" policy (or SECURITY DEFINER RPC) lets us read them.
+  // We query all rows for our convIds — we only need the friend's user_id per conv.
+  const { data: allMembers, error: allMembErr } = await client
+    .from('conversation_members')
+    .select('conversation_id, user_id')
+    .in('conversation_id', convIds);
+
+  if (allMembErr) { console.error('loadConversations: allMembers error', allMembErr); }
+
+  // Build a map: convId -> friendId
+  const convFriendMap = {};
+  (allMembers || []).forEach(m => {
+    if (m.user_id !== myUserId) convFriendMap[m.conversation_id] = m.user_id;
+  });
+
+  // Step 4: Fetch profiles for all friends we found
+  const friendIds = [...new Set(Object.values(convFriendMap))];
+  if (friendIds.length > 0) {
+    const { data: profiles } = await client
+      .from('profiles')
+      .select('id, username, display_name, avatar_emoji, avatar_color, course, university')
+      .in('id', friendIds);
+    (profiles || []).forEach(p => { friendCache[p.id] = p; });
+  }
+
+  // Step 5: Fetch latest messages per conversation (flat query, no nesting)
+  const { data: recentMsgs } = await client
+    .from('messages')
+    .select('id, conversation_id, body, msg_type, file_name, sender_id, created_at, is_deleted')
+    .in('conversation_id', convIds)
+    .order('created_at', { ascending: false })
+    .limit(convIds.length * 3);
+
+  // Build a map: convId -> latest message
+  const lastMsgMap = {};
+  (recentMsgs || []).forEach(m => {
+    if (!lastMsgMap[m.conversation_id]) lastMsgMap[m.conversation_id] = m;
+  });
+
+  // Step 6: Assemble conversation objects
+  conversations = convs.map(c => {
+    const friendId = convFriendMap[c.id];
+    const friend = friendId ? friendCache[friendId] : null;
+    if (!friend) return null; // skip if we truly can't find a friend (shouldn't happen)
+    const lastMsg = lastMsgMap[c.id] || null;
+    const myMembership = memberships.find(m => m.conversation_id === c.id);
+    return { id: c.id, friend, friendId, lastMsg, unread: 0, updatedAt: c.updated_at };
+  }).filter(Boolean);
+
+  renderConvList(conversations);
+}
+
+function renderConvList(list) {
+  const el = document.getElementById('convList');
+  const q = document.getElementById('convSearchInput').value.toLowerCase();
+  const filtered = q ? list.filter(c => (c.friend?.display_name||'').toLowerCase().includes(q) || (c.friend?.username||'').toLowerCase().includes(q)) : list;
+
+  if (!filtered.length) {
+    el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--ink-faint);font-size:.82rem">' + (q ? 'No matches.' : 'No conversations yet.<br><br>Click <b>New conversation</b> to start chatting!') + '</div>';
+    return;
+  }
+
+  el.innerHTML = filtered.map(c => {
+    const f = c.friend;
+    const preview = c.lastMsg
+      ? (c.lastMsg.is_deleted ? null : c.lastMsg.msg_type === 'image' ? '📷 Image' : c.lastMsg.msg_type === 'file' ? '📎 ' + (c.lastMsg.file_name || 'File') : c.lastMsg.body.slice(0, 50))
+      : 'No messages yet';
+    const time = c.lastMsg ? timeAgo(c.lastMsg.created_at) : '';
+    const isActive = activeConv?.id === c.id;
+    return `<div class="conv-item ${isActive ? 'active' : ''}" onclick="openConv('${c.id}')">
+      <div class="conv-avatar" style="background:${f.avatar_color||'#1A1A1A'}">${f.avatar_emoji||''}</div>
+      <div class="conv-info">
+        <div class="conv-name">${esc(f.display_name || f.username)}</div>
+        <div class="conv-preview">${esc(preview)}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
+        <div class="conv-time">${time}</div>
+        ${c.unread > 0 ? `<div class="conv-unread">${c.unread}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function filterConvs() { renderConvList(conversations); }
+
+/* ═══════════════════════════════════════════════
+   OPEN CONVERSATION
+═══════════════════════════════════════════════ */
+async function openConv(convId) {
+  const conv = conversations.find(c => c.id === convId);
+  if (!conv) return;
+
+  activeConv = conv;
+  renderConvList(conversations); // highlight active
+
+  // Show chat area
+  document.getElementById('chatEmpty').style.display = 'none';
+  document.getElementById('chatActive').style.display = 'flex';
+
+  // Set header
+  const f = conv.friend;
+  document.getElementById('chatHeaderAvatar').textContent = f.avatar_emoji || '';
+  document.getElementById('chatHeaderAvatar').style.background = f.avatar_color || '#1A1A1A';
+  document.getElementById('chatHeaderName').textContent = f.display_name || f.username;
+  document.getElementById('chatHeaderSub').textContent = '@' + f.username + (f.university ? ' · ' + f.university : '');
+
+  // Load messages
+  await loadMessages(convId);
+
+  // Subscribe to realtime
+  subscribeToConv(convId);
+
+  // Mark as read
+  markRead(convId);
+
+  // Focus input
+  document.getElementById('msgInput').focus();
+}
+
+async function openOrCreateConvWith(friendId) {
+  const existing = conversations.find(c => c.friendId === friendId);
+  if (existing) { openConv(existing.id); return; }
+
+  const client = ZenAuth.getSupabaseClient();
+
+  try {
+    // Use RPC to create conversation + add both members in one atomic call
+    const { data: convId, error } = await client.rpc('create_direct_conversation', {
+      other_user_id: friendId
+    });
+
+    if (error || !convId) {
+      console.error('Conversation creation error:', error);
+      showToast('Could not start conversation: ' + (error?.message || 'Unknown error'), 'error');
+      return;
+    }
+
+    await loadConversations();
+    // Find by convId first, fallback to friendId
+    let newConv = conversations.find(c => c.id === convId);
+    if (!newConv) newConv = conversations.find(c => c.friendId === friendId);
+
+    if (newConv) {
+      openConv(newConv.id);
+    } else {
+      // Profile not cached yet — fetch it and open manually
+      const client2 = ZenAuth.getSupabaseClient();
+      const { data: friendProf } = await client2
+        .from('profiles')
+        .select('id, username, display_name, avatar_emoji, avatar_color, course, university')
+        .eq('id', friendId)
+        .single();
+      if (friendProf) {
+        friendCache[friendId] = friendProf;
+        const manualConv = { id: convId, friend: friendProf, friendId, lastMsg: null, unread: 0, updatedAt: new Date().toISOString() };
+        conversations.unshift(manualConv);
+        renderConvList(conversations);
+        openConv(convId);
+      }
+    }
+
+  } catch (err) {
+    console.error('Unexpected error:', err);
+    showToast('Could not start conversation: ' + err.message, 'error');
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   MESSAGES
+═══════════════════════════════════════════════ */
+async function loadMessages(convId) {
+  const client = ZenAuth.getSupabaseClient();
+  const { data: msgs } = await client
+    .from('messages')
+    .select('*')
+    .eq('conversation_id', convId)
+    .order('created_at', { ascending: true })
+    .limit(100);
+
+  msgCache[convId] = msgs || [];
+  renderMessages(convId);
+}
+
+function renderMessages(convId) {
+  const msgs = msgCache[convId] || [];
+  const area = document.getElementById('messagesArea');
+  if (!msgs.length) {
+    area.innerHTML = `<div style="text-align:center;color:var(--ink-faint);font-size:.82rem;padding:30px 0">No messages yet. Say hello! </div>`;
+    return;
+  }
+
+  let html = '';
+  let lastDate = '';
+  let lastSender = '';
+
+  msgs.filter(msg => !msg.is_deleted).forEach((msg, i) => {
+    const mine = msg.sender_id === myUserId;
+    const d = new Date(msg.created_at);
+    const dateStr = d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+    const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+    const yesterday = new Date(Date.now()-86400000).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+    const displayDate = dateStr === today ? 'Today' : dateStr === yesterday ? 'Yesterday' : dateStr;
+
+    if (dateStr !== lastDate) {
+      html += `<div class="date-divider"><span>${displayDate}</span></div>`;
+      lastDate = dateStr;
+      lastSender = '';
+    }
+
+    const senderChanged = msg.sender_id !== lastSender;
+    lastSender = msg.sender_id;
+
+    const sender = mine ? myProfile : activeConv?.friend;
+    const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+    const avatarHtml = !mine && senderChanged
+      ? `<div class="msg-avatar" style="background:${sender?.avatar_color||'#1A1A1A'}">${sender?.avatar_emoji||''}</div>`
+      : `<div style="width:28px;flex-shrink:0"></div>`;
+
+    let bodyHtml = '';
+    if (msg.msg_type === 'image') {
+      bodyHtml = `<div class="msg-image-wrap" style="position:relative;display:inline-block">
+        <div class="msg-image" onclick="document.getElementById('lightboxImg').src='${esc(msg.file_url)}';document.getElementById('lightbox').classList.add('open')"><img src="${esc(msg.file_url)}" alt="image" loading="lazy" /></div>
+        <div class="msg-actions">
+          ${mine ? `<button class="msg-act-btn danger" onclick="unsendMsg(event,'${msg.id}')" title="Unsend"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>` : ''}
+        </div>
+      </div>`;
+    } else if (msg.msg_type === 'file') {
+      const sizeLabel = msg.file_size ? formatFileSize(msg.file_size) : '';
+      bodyHtml = `<div class="msg-bubble ${mine?'mine':''}" style="display:flex;align-items:center;gap:10px;padding:10px 14px;position:relative">
+        <div style="width:36px;height:36px;border-radius:8px;background:${mine?'rgba(255,255,255,.15)':'var(--surface-2)'};display:grid;place-items:center;flex-shrink:0">
+          ${fileIcon(msg.file_name)}
+        </div>
+        <div style="min-width:0;flex:1">
+          <div style="font-size:.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(msg.file_name||'File')}</div>
+          ${sizeLabel ? `<div style="font-size:.7rem;opacity:.7">${sizeLabel}</div>` : ''}
+        </div>
+        <a href="${esc(msg.file_url)}" download="${esc(msg.file_name||'file')}" style="flex-shrink:0;width:30px;height:30px;border-radius:7px;background:${mine?'rgba(255,255,255,.2)':'var(--surface-2)'};display:grid;place-items:center;text-decoration:none" title="Download">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </a>
+        <div class="msg-actions">
+          <button class="msg-act-btn" onclick="copyMsg('${esc((msg.file_name||'File').replace(/'/g,"\\'"))}')" title="Copy filename"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
+          ${mine ? `<button class="msg-act-btn danger" onclick="unsendMsg(event,'${msg.id}')" title="Unsend"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>` : ''}
+        </div>
+      </div>`;
+    } else {
+      const actionsHtml = `<div class="msg-actions">
+        <button class="msg-act-btn" onclick="copyMsg('${esc(msg.body.replace(/'/g,"\\'"))}')" title="Copy"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
+        ${mine ? `<button class="msg-act-btn danger" onclick="unsendMsg(event,'${msg.id}')" title="Unsend"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>` : ''}
+      </div>`;
+      bodyHtml = `<div class="msg-bubble ${mine?'mine':''}" style="position:relative">${escHtml(msg.body)}${actionsHtml}</div>`;
+    }
+
+    const nameHtml = !mine && senderChanged ? `<div class="msg-sender-name">${esc(sender?.display_name||sender?.username||'')}</div>` : '';
+
+    html += `<div class="msg-row ${mine?'mine':''}">
+      ${mine ? '' : avatarHtml}
+      <div class="msg-group">
+        ${nameHtml}
+        ${bodyHtml}
+        <div class="msg-meta">
+          <span class="msg-time">${timeStr}</span>
+          ${mine && msg.edited_at ? '<span class="msg-status">edited</span>' : ''}
+        </div>
+      </div>
+      ${mine ? avatarHtml : ''}
+    </div>`;
+  });
+
+  area.innerHTML = html;
+  area.scrollTop = area.scrollHeight;
+}
+
+function escHtml(s) {
+  return String(s||'')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+    .replace(/\n/g,'<br>');
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+/* ═══════════════════════════════════════════════
+   SEND MESSAGE
+═══════════════════════════════════════════════ */
+async function sendMessage() {
+  if (!activeConv) return;
+  const inp = document.getElementById('msgInput');
+  const body = inp.value.trim();
+  if (!body || body.length > 4000) return;
+
+  inp.value = '';
+  inp.style.height = 'auto';
+  document.getElementById('sendBtn').disabled = true;
+  document.getElementById('charCount').textContent = '0/4000';
+
+  const client = ZenAuth.getSupabaseClient();
+  const now = new Date().toISOString();
+
+  const { error } = await client.from('messages').insert({
+    conversation_id: activeConv.id,
+    sender_id: myUserId,
+    body,
+    msg_type: 'text'
+  });
+
+  if (error) { showToast('Failed to send message', 'error'); return; }
+
+  // Bump conversation updated_at so the sidebar re-orders and shows the preview
+  await client.from('conversations').update({ updated_at: now }).eq('id', activeConv.id);
+
+  // Optimistically refresh local conv list preview without waiting for realtime
+  const conv = conversations.find(c => c.id === activeConv.id);
+  if (conv) {
+    conv.lastMsg = { body, sender_id: myUserId, created_at: now, msg_type: 'text', is_deleted: false };
+    conv.updatedAt = now;
+    conversations.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    renderConvList(conversations);
+  }
+
+  // Stop typing indicator
+  stopTyping();
+}
+
+async function sendImage(event) {
+  if (!activeConv) { showToast('Open a conversation first', 'error'); return; }
+  const file = event.target.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { showToast('Max image size is 5MB', 'error'); return; }
+
+  showToast('Uploading image…');
+
+  // Convert to base64 data URL and store as message body (no Storage bucket needed)
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    const dataUrl = e.target.result;
+    const client = ZenAuth.getSupabaseClient();
+    const { error } = await client.from('messages').insert({
+      conversation_id: activeConv.id,
+      sender_id: myUserId,
+      body: '📷 Image',
+      msg_type: 'image',
+      file_url: dataUrl,
+      file_name: file.name
+    });
+    if (error) showToast('Failed to send image', 'error');
+    else showToast('Image sent!', 'success');
+  };
+  reader.readAsDataURL(file);
+  event.target.value = '';
+}
+
+
+async function sendFile(event) {
+  if (!activeConv) { showToast("Open a conversation first", "error"); return; }
+  const file = event.target.files[0];
+  if (!file) return;
+  if (file.size > 10 * 1024 * 1024) { showToast("Max file size is 10MB", "error"); event.target.value = ""; return; }
+  if (file.type.startsWith("image/")) { await sendImage(event); return; }
+  showToast("Uploading file…");
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    const dataUrl = e.target.result;
+    const client = ZenAuth.getSupabaseClient();
+    const now = new Date().toISOString();
+    const { error } = await client.from("messages").insert({
+      conversation_id: activeConv.id,
+      sender_id: myUserId,
+      body: "📎 " + file.name,
+      msg_type: "file",
+      file_url: dataUrl,
+      file_name: file.name,
+      file_size: file.size
+    });
+    if (error) { showToast("Failed to send file", "error"); return; }
+    showToast("File sent!", "success");
+    await client.from("conversations").update({ updated_at: now }).eq("id", activeConv.id);
+    const conv = conversations.find(c => c.id === activeConv.id);
+    if (conv) {
+      conv.lastMsg = { body: "📎 " + file.name, sender_id: myUserId, created_at: now, msg_type: "file", file_name: file.name, is_deleted: false };
+      conv.updatedAt = now;
+      conversations.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+      renderConvList(conversations);
+    }
+  };
+  reader.readAsDataURL(file);
+  event.target.value = "";
+}
+
+function fileIcon(name) {
+  const ext = (name||"").split(".").pop().toLowerCase();
+  const icons = {
+    pdf:  "<svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z\"/><polyline points=\"14 2 14 8 20 8\"/><line x1=\"16\" y1=\"13\" x2=\"8\" y2=\"13\"/><line x1=\"16\" y1=\"17\" x2=\"8\" y2=\"17\"/></svg>",
+    mp3:  "<svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M9 18V5l12-2v13\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/><circle cx=\"18\" cy=\"16\" r=\"3\"/></svg>",
+    mp4:  "<svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><polygon points=\"23 7 16 12 23 17 23 7\"/><rect x=\"1\" y=\"5\" width=\"15\" height=\"14\" rx=\"2\"/></svg>",
+  };
+  return icons[ext] || "<svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z\"/><polyline points=\"14 2 14 8 20 8\"/></svg>";
+}
+
+function formatFileSize(bytes) {
+  if (!bytes) return "";
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+// Active unsend popup tracker
+let _unsendPopup = null;
+
+function unsendMsg(event, msgId) {
+  event.stopPropagation();
+
+  // Remove any existing popup
+  if (_unsendPopup) { _unsendPopup.remove(); _unsendPopup = null; }
+
+  // Build popup
+  const popup = document.createElement('div');
+  popup.className = 'unsend-popup';
+  popup.innerHTML = `
+    <p>Unsend this message?<br><span style="font-size:.74rem;color:var(--ink-muted);font-weight:400">It will be removed for everyone.</span></p>
+    <div class="unsend-popup-btns">
+      <button class="unsend-cancel-btn">Cancel</button>
+      <button class="unsend-ok-btn">Unsend</button>
+    </div>`;
+
+  // Position near the button
+  const btn = event.currentTarget;
+  const rect = btn.getBoundingClientRect();
+  popup.style.top = (rect.bottom + 8) + 'px';
+  popup.style.left = Math.max(8, rect.left - 90) + 'px';
+  document.body.appendChild(popup);
+  _unsendPopup = popup;
+
+  // Adjust if off-screen bottom
+  requestAnimationFrame(() => {
+    const pr = popup.getBoundingClientRect();
+    if (pr.bottom > window.innerHeight - 8) {
+      popup.style.top = (rect.top - pr.height - 8) + 'px';
+    }
+  });
+
+  popup.querySelector('.unsend-cancel-btn').onclick = () => { popup.remove(); _unsendPopup = null; };
+
+  popup.querySelector('.unsend-ok-btn').onclick = async () => {
+    popup.remove(); _unsendPopup = null;
+
+    // Optimistically update UI immediately
+    if (activeConv && msgCache[activeConv.id]) {
+      const msg = msgCache[activeConv.id].find(m => m.id === msgId);
+      if (msg) { msg.is_deleted = true; renderMessages(activeConv.id); }
+    }
+
+    // Persist to DB
+    const client = ZenAuth.getSupabaseClient();
+    const { error } = await client.from('messages').update({ is_deleted: true }).eq('id', msgId);
+    if (error) {
+      showToast('Could not unsend message', 'error');
+      // Revert optimistic update
+      if (activeConv && msgCache[activeConv.id]) {
+        const msg = msgCache[activeConv.id].find(m => m.id === msgId);
+        if (msg) { msg.is_deleted = false; renderMessages(activeConv.id); }
+      }
+    }
+  };
+
+  // Close on outside click
+  setTimeout(() => {
+    document.addEventListener('click', function handler(e) {
+      if (!popup.contains(e.target)) { popup.remove(); _unsendPopup = null; document.removeEventListener('click', handler); }
+    });
+  }, 10);
+}
+
+function copyMsg(text) {
+  navigator.clipboard.writeText(text).then(() => showToast('Copied!', 'success'));
+}
+
+function clearChatView() {
+  if (!activeConv) return;
+  if (!confirm('Clear this chat view? (Messages are not deleted from the server)')) return;
+  msgCache[activeConv.id] = [];
+  renderMessages(activeConv.id);
+}
+
+/* ═══════════════════════════════════════════════
+   REALTIME SUBSCRIPTION
+═══════════════════════════════════════════════ */
+function subscribeToConv(convId) {
+  const client = ZenAuth.getSupabaseClient();
+
+  // Unsubscribe from previous
+  if (realtimeChannel) { client.removeChannel(realtimeChannel); }
+  if (typingChannel)   { client.removeChannel(typingChannel); }
+
+  // Subscribe to new messages
+  realtimeChannel = client.channel(`messages:${convId}`)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'messages',
+      filter: `conversation_id=eq.${convId}`
+    }, async (payload) => {
+      const msg = payload.new;
+      if (!msgCache[convId]) msgCache[convId] = [];
+      msgCache[convId].push(msg);
+      renderMessages(convId);
+      // Update conv list locally so preview and order update instantly
+      const conv = conversations.find(c => c.id === convId);
+      if (conv) {
+        conv.lastMsg = msg;
+        conv.updatedAt = msg.created_at;
+        if (msg.sender_id !== myUserId) conv.unread = (conv.unread || 0) + 1;
+        conversations.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+        renderConvList(conversations);
+      } else {
+        loadConversations(); // fallback: unknown conv, do full reload
+      }
+      if (msg.sender_id !== myUserId) markRead(convId);
+    })
+    .on('postgres_changes', {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'messages',
+      filter: `conversation_id=eq.${convId}`
+    }, (payload) => {
+      if (!msgCache[convId]) return;
+      const idx = msgCache[convId].findIndex(m => m.id === payload.new.id);
+      if (idx !== -1) { msgCache[convId][idx] = payload.new; renderMessages(convId); }
+    })
+    .subscribe();
+
+  // Typing indicator via broadcast
+  typingChannel = client.channel(`typing:${convId}`)
+    .on('broadcast', { event: 'typing' }, ({ payload }) => {
+      if (payload.userId === myUserId) return;
+      const name = payload.name || 'Someone';
+      document.getElementById('typingName').textContent = name;
+      document.getElementById('typingIndicator').classList.add('visible');
+      clearTimeout(window._typingHideTimer);
+      window._typingHideTimer = setTimeout(() => {
+        document.getElementById('typingIndicator').classList.remove('visible');
+      }, 2500);
+    })
+    .subscribe();
+}
+
+/* ═══════════════════════════════════════════════
+   TYPING INDICATOR
+═══════════════════════════════════════════════ */
+function broadcastTyping() {
+  if (!typingChannel || !activeConv) return;
+  typingChannel.send({ type: 'broadcast', event: 'typing', payload: { userId: myUserId, name: myProfile?.display_name || myProfile?.username || 'Someone' } });
+}
+
+function stopTyping() {
+  clearTimeout(typingTimer);
+  typingTimer = null;
+}
+
+/* ═══════════════════════════════════════════════
+   INPUT HANDLING
+═══════════════════════════════════════════════ */
+function handleKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+function handleInput() {
+  const ta = document.getElementById('msgInput');
+  const val = ta.value;
+  // Auto-resize
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
+  // Char count
+  document.getElementById('charCount').textContent = `${val.length}/4000`;
+  // Send button
+  document.getElementById('sendBtn').disabled = !val.trim() || val.length > 4000;
+  // Typing broadcast
+  clearTimeout(typingTimer);
+  if (val.trim()) {
+    broadcastTyping();
+    typingTimer = setTimeout(stopTyping, 2000);
+  }
+}
+
+async function handlePaste(e) {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault();
+      const file = item.getAsFile();
+      if (file) {
+        const fakeEvent = { target: { files: [file], value: '' } };
+        await sendImage(fakeEvent);
+      }
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   EMOJI PICKER
+═══════════════════════════════════════════════ */
+function buildEmojiPicker() {
+  const picker = document.getElementById('emojiPicker');
+  picker.innerHTML = `<div class="emoji-picker-grid">${CHAT_EMOJIS.map(e => `<button class="ep-emoji" onclick="insertEmoji('${e}')">${e}</button>`).join('')}</div>`;
+}
+
+function toggleEmoji() {
+  document.getElementById('emojiPicker').classList.toggle('open');
+}
+
+function insertEmoji(e) {
+  const ta = document.getElementById('msgInput');
+  const s = ta.selectionStart, end = ta.selectionEnd;
+  ta.value = ta.value.slice(0, s) + e + ta.value.slice(end);
+  ta.selectionStart = ta.selectionEnd = s + e.length;
+  ta.focus();
+  document.getElementById('emojiPicker').classList.remove('open');
+  handleInput();
+}
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#emojiPicker') && !e.target.closest('.inp-btn')) {
+    document.getElementById('emojiPicker').classList.remove('open');
+  }
+});
+
+/* ═══════════════════════════════════════════════
+   MESSAGE ACTIONS — JS HOVER (fixes the gap between bubble and actions panel)
+   CSS hover fails because .msg-actions is positioned 6px outside the bubble.
+   We use mouseover/mouseout with a 200ms hide-delay so moving the cursor
+   across the gap doesn't dismiss the toolbar.
+═══════════════════════════════════════════════ */
+(function initMsgActionHover() {
+  let hideTimer = null;
+  let currentActions = null;
+
+  function showActions(actionsEl) {
+    if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    if (currentActions && currentActions !== actionsEl) {
+      currentActions.classList.remove('visible');
+    }
+    currentActions = actionsEl;
+    actionsEl.classList.add('visible');
+  }
+
+  function scheduleHide() {
+    hideTimer = setTimeout(() => {
+      if (currentActions) { currentActions.classList.remove('visible'); currentActions = null; }
+    }, 200);
+  }
+
+  document.addEventListener('mouseover', (e) => {
+    const actions = e.target.closest('.msg-actions');
+    if (actions) {
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+      return;
+    }
+    const bubble = e.target.closest('.msg-bubble, .msg-image-wrap');
+    if (bubble) {
+      const actionsEl = bubble.querySelector('.msg-actions');
+      if (actionsEl) showActions(actionsEl);
+    }
+  });
+
+  document.addEventListener('mouseout', (e) => {
+    const leavingBubble = e.target.closest('.msg-bubble, .msg-image-wrap');
+    const leavingActions = e.target.closest('.msg-actions');
+    if (leavingBubble || leavingActions) {
+      const goingTo = e.relatedTarget;
+      const goingToBubble = goingTo && goingTo.closest('.msg-bubble, .msg-image-wrap');
+      const goingToActions = goingTo && goingTo.closest('.msg-actions');
+      if (!goingToBubble && !goingToActions) scheduleHide();
+    }
+  });
+})();
+
+/* ═══════════════════════════════════════════════
+   NEW CONVERSATION
+═══════════════════════════════════════════════ */
+function openNewConv() {
+  document.getElementById('newConvPanel').classList.add('open');
+  document.getElementById('newConvSearch').value = '';
+  document.getElementById('newConvResults').innerHTML = '<div style="padding:20px;text-align:center;color:var(--ink-faint);font-size:.82rem">Type to search your friends…</div>';
+  setTimeout(() => document.getElementById('newConvSearch').focus(), 100);
+}
+
+function closeNewConv() {
+  document.getElementById('newConvPanel').classList.remove('open');
+}
+
+let friendSearchTimer = null;
+async function searchFriends() {
+  const q = document.getElementById('newConvSearch').value.trim();
+  const el = document.getElementById('newConvResults');
+  if (q.length < 1) { el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--ink-faint);font-size:.82rem">Type to search your friends…</div>'; return; }
+
+  clearTimeout(friendSearchTimer);
+  friendSearchTimer = setTimeout(async () => {
+    const client = ZenAuth.getSupabaseClient();
+
+    // Get my accepted friends
+    const { data: reqs } = await client
+      .from('friend_requests')
+      .select('sender_id, receiver_id')
+      .or(`sender_id.eq.${myUserId},receiver_id.eq.${myUserId}`)
+      .eq('status', 'accepted');
+
+    const friendIds = (reqs || []).map(r => r.sender_id === myUserId ? r.receiver_id : r.sender_id);
+    if (!friendIds.length) { el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--ink-faint);font-size:.82rem">No friends yet. <a href="profile.html">Add some friends first!</a></div>'; return; }
+
+    const { data: profiles } = await client
+      .from('profiles')
+      .select('id, username, display_name, avatar_emoji, avatar_color, university')
+      .in('id', friendIds)
+      .or(`username.ilike.%${q}%,display_name.ilike.%${q}%`)
+      .limit(10);
+
+    if (!profiles?.length) { el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--ink-faint);font-size:.82rem">No friends match your search.</div>'; return; }
+
+    el.innerHTML = profiles.map(p => `
+      <div class="ncp-user-row" onclick="startConvWith('${p.id}')">
+        <div class="ncp-user-avatar" style="background:${p.avatar_color||'#1A1A1A'}">${p.avatar_emoji||''}</div>
+        <div class="ncp-user-info">
+          <div class="ncp-user-name">${esc(p.display_name || p.username)}</div>
+          <div class="ncp-user-sub">@${esc(p.username)}${p.university ? ' · ' + esc(p.university) : ''}</div>
+        </div>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--ink-faint)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>`).join('');
+  }, 300);
+}
+
+async function startConvWith(friendId) {
+  closeNewConv();
+  await openOrCreateConvWith(friendId);
+}
+
+/* ═══════════════════════════════════════════════
+   MARK READ
+═══════════════════════════════════════════════ */
+async function markRead(convId) {
+  const client = ZenAuth.getSupabaseClient();
+  await client.from('conversation_members')
+    .update({ last_read_at: new Date().toISOString() })
+    .eq('conversation_id', convId)
+    .eq('user_id', myUserId);
+
+  // Reset unread in local state
+  const conv = conversations.find(c => c.id === convId);
+  if (conv) { conv.unread = 0; renderConvList(conversations); }
+}
+
+/* ═══════════════════════════════════════════════
+   MISC
+═══════════════════════════════════════════════ */
+function viewFriendProfile() {
+  if (!activeConv?.friend) return;
+  // Could open a mini profile modal or navigate
+  showToast(`@${activeConv.friend.username}`);
+}
+
+function timeAgo(dateStr) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d`;
+  return new Date(dateStr).toLocaleDateString('en-US', { month:'short', day:'numeric' });
+}
+</script>
+</body>
+</html>

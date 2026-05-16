@@ -1429,52 +1429,277 @@
     let roomMessages = [];
     let voiceParticipants = {}; // userId -> {profile, speaking, muted}
 
-    // ICE servers — using free Metered STUN, reliable public STUN
-    // NOTE: For production across different networks, add a real TURN server.
+    // ICE servers (STUN + public TURN for NAT traversal)
     const ICE_SERVERS = [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:global.stun.twilio.com:3478' },
-      // Free TURN from Metered (register free at metered.ca for your own credentials)
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
+      { urls: 'stun:openrelay.metered.ca:80' },
       {
-        urls: 'turn:a.relay.metered.ca:80',
+        urls: 'turn:openrelay.metered.ca:80',
         username: 'openrelayproject',
         credential: 'openrelayproject'
       },
       {
-        urls: 'turn:a.relay.metered.ca:443',
+        urls: 'turn:openrelay.metered.ca:443',
         username: 'openrelayproject',
         credential: 'openrelayproject'
       },
       {
-        urls: 'turns:a.relay.metered.ca:443',
+        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
         username: 'openrelayproject',
         credential: 'openrelayproject'
       }
     ];
 
     /* ═══════════════════════════════════════════════
-       VOICE CHAT (WebRTC) — Fixed
-       Key fixes:
-         1. Only the OLDER peer (lower userId string) initiates offers
-            to avoid offer-glare when both join simultaneously.
-         2. presence:sync only connects to peers we haven't connected yet.
-         3. Audio autoplay policy handled with explicit .play() + unmute fallback.
-         4. ICE candidate buffering so candidates aren't dropped before
-            setRemoteDescription completes.
+       INIT
     ═══════════════════════════════════════════════ */
+    document.addEventListener('DOMContentLoaded', async () => {
+      await ZenAuth.initSupabase();
+      const user = await ZenAuth.getUserAsync();
+      if (!user) { window.location.href = 'login.html'; return; }
+      myUserId = user.id;
 
-    // Buffer ICE candidates that arrive before setRemoteDescription
-    const iceCandidateBuffers = {}; // peerId -> [candidate, ...]
+      const client = ZenAuth.getSupabaseClient();
+      const { data: prof } = await client.from('profiles').select('*').eq('id', myUserId).single();
+      myProfile = prof;
 
-    async function drainIceCandidates(pc, peerId) {
-      const buf = iceCandidateBuffers[peerId] || [];
-      for (const c of buf) {
-        try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch(e) {}
+      const av = document.getElementById('navAvatar');
+      if (av) {
+        av.style.background = prof?.avatar_color || '#1A1A1A';
+        av.textContent = prof?.avatar_emoji || '';
       }
-      delete iceCandidateBuffers[peerId];
+
+      ZenAuth.onAuthStateChange(e => { if (e === 'SIGNED_OUT') window.location.href = 'login.html'; });
+
+      await loadServers();
+
+      // Auto-open join modal if URL contains ?join=CODE (from shareable invite link)
+      const urlParams = new URLSearchParams(location.search);
+      const autoJoinCode = urlParams.get('join');
+      if (autoJoinCode) {
+        history.replaceState({}, '', location.pathname);
+        openCreateModal();
+        switchCJ('join');
+        document.getElementById('joinCode').value = autoJoinCode.toUpperCase().slice(0, 6);
+        showToast('Invite code auto-filled — click "Join Server" to continue!', 'success');
+      }
+    });
+
+    /* ═══════════════════════════════════════════════
+       LOAD SERVERS
+    ═══════════════════════════════════════════════ */
+    async function loadServers() {
+      const client = ZenAuth.getSupabaseClient();
+      const { data: memberships } = await client
+        .from('server_members')
+        .select('server_id, role')
+        .eq('user_id', myUserId);
+
+      if (!memberships?.length) {
+        document.getElementById('srvList').innerHTML = `<div style="padding:24px 16px;text-align:center;color:var(--ink-faint);font-size:.8rem;line-height:1.6">No servers yet.<br>Create one or join with an invite code!</div>`;
+        return;
+      }
+
+      const ids = memberships.map(m => m.server_id);
+      const { data: servers } = await client.from('servers').select('*').in('id', ids);
+      myServers = servers || [];
+
+      renderServerList();
     }
 
+    function renderServerList() {
+      const el = document.getElementById('srvList');
+      if (!myServers.length) {
+        el.innerHTML = `<div style="padding:24px 16px;text-align:center;color:var(--ink-faint);font-size:.8rem;line-height:1.6">No servers yet.<br>Create one or join with an invite code!</div>`;
+        return;
+      }
+      el.innerHTML = myServers.map(s => `
+    <div class="srv-item ${activeServer?.id === s.id ? 'active' : ''}" onclick="openServer('${s.id}')">
+      <div class="srv-icon">${s.icon_emoji || ''}</div>
+      <div class="srv-item-info">
+        <div class="srv-item-name">${esc(s.name)}</div>
+        <div class="srv-item-sub">${esc(s.description || 'No description')}</div>
+      </div>
+    </div>
+  `).join('');
+    }
+
+    /* ═══════════════════════════════════════════════
+       OPEN SERVER ROOM
+    ═══════════════════════════════════════════════ */
+    async function openServer(serverId) {
+      // Leave voice if in another room
+      if (inVoice) await leaveVoice();
+
+      // Cleanup old channels
+      const client = ZenAuth.getSupabaseClient();
+      if (presenceChannel) { client.removeChannel(presenceChannel); presenceChannel = null; }
+      if (roomChatChannel) { client.removeChannel(roomChatChannel); roomChatChannel = null; }
+
+      activeServer = myServers.find(s => s.id === serverId);
+      if (!activeServer) return;
+
+      renderServerList();
+
+      // Update header
+      document.getElementById('roomIcon').textContent = activeServer.icon_emoji || '';
+      document.getElementById('roomName').textContent = activeServer.name;
+      document.getElementById('srvEmpty').style.display = 'none';
+      document.getElementById('roomView').style.display = 'flex';
+
+      // Load chat history
+      roomMessages = [];
+      document.getElementById('rchatMsgs').innerHTML = '';
+      const { data: msgs } = await client
+        .from('server_messages')
+        .select('*, profiles:sender_id(display_name, username, avatar_emoji, avatar_color)')
+        .eq('server_id', serverId)
+        .order('created_at', { ascending: true })
+        .limit(80);
+
+      (msgs || []).forEach(m => appendRchatMsg(m, false));
+      scrollRchat();
+
+      // Subscribe to new messages
+      roomChatChannel = client.channel(`server_chat:${serverId}`)
+        .on('postgres_changes', {
+          event: 'INSERT', schema: 'public', table: 'server_messages',
+          filter: `server_id=eq.${serverId}`
+        }, async (payload) => {
+          const msg = payload.new;
+          // Fetch sender profile
+          const { data: prof } = await client.from('profiles').select('display_name, username, avatar_emoji, avatar_color').eq('id', msg.sender_id).single();
+          msg.profiles = prof;
+          appendRchatMsg(msg, true);
+        })
+        .subscribe();
+
+      // Presence channel for "online" count
+      presenceChannel = client.channel(`server_presence:${serverId}`, { config: { presence: { key: myUserId } } });
+      presenceChannel
+        .on('presence', { event: 'sync' }, () => { updateOnlineCount(); })
+        .subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            await presenceChannel.track({ userId: myUserId, name: myProfile?.display_name || myProfile?.username });
+          }
+        });
+
+      // Always re-fetch fresh server data so invite_code is up-to-date
+      try {
+        const { data: freshSrv } = await client
+          .from('servers').select('invite_code, owner_id').eq('id', serverId).single();
+        if (freshSrv?.invite_code) {
+          activeServer.invite_code = freshSrv.invite_code;
+          const idx = myServers.findIndex(s => s.id === activeServer.id);
+          if (idx !== -1) myServers[idx].invite_code = freshSrv.invite_code;
+        }
+      } catch (e) { }
+
+      // Show leave button for non-owners, show invite code badge for owners
+      const isOwner = activeServer.owner_id === myUserId;
+      document.getElementById('leaveRoomBtn').style.display = isOwner ? 'none' : '';
+
+      // Show the owner's invite code inline in the header
+      const ownerBadge = document.getElementById('ownerCodeBadge');
+      const headerCodeText = document.getElementById('headerCodeText');
+      if (isOwner) {
+        // Ensure the server has an invite code; generate one if missing
+        if (!activeServer.invite_code) {
+          const code = generateCode();
+          const { error: codeErr } = await client.from('servers').update({ invite_code: code }).eq('id', activeServer.id);
+          if (!codeErr) {
+            activeServer.invite_code = code;
+            const idx = myServers.findIndex(s => s.id === activeServer.id);
+            if (idx !== -1) myServers[idx].invite_code = code;
+          } else {
+            // Update failed — try one more fetch in case another session set it
+            const { data: retry } = await client.from('servers').select('invite_code').eq('id', activeServer.id).single();
+            if (retry?.invite_code) activeServer.invite_code = retry.invite_code;
+          }
+        }
+        headerCodeText.textContent = activeServer.invite_code || '----';
+        ownerBadge.style.display = 'flex';
+      } else {
+        ownerBadge.style.display = 'none';
+      }
+    }
+
+    function updateOnlineCount() {
+      if (!presenceChannel) return;
+      const state = presenceChannel.presenceState();
+      const count = Object.keys(state).length;
+      document.getElementById('roomSub').innerHTML = `<span class="online-dot"></span>${count} online`;
+    }
+
+    /* ═══════════════════════════════════════════════
+       ROOM CHAT
+    ═══════════════════════════════════════════════ */
+    function appendRchatMsg(msg, animate) {
+      const area = document.getElementById('rchatMsgs');
+      const isMe = msg.sender_id === myUserId;
+      const prof = msg.profiles || {};
+      const name = prof.display_name || prof.username || 'Unknown';
+      const color = prof.avatar_color || '#1A1A1A';
+      const emoji = prof.avatar_emoji || '';
+      const time = new Date(msg.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+      const div = document.createElement('div');
+      div.className = 'rchat-msg';
+      if (animate) div.style.animation = 'fadeIn .2s ease';
+      div.innerHTML = `
+    <div class="rchat-msg-avatar" style="background:${color}">${emoji}</div>
+    <div class="rchat-msg-body">
+      <div class="rchat-msg-meta">
+        <span class="rchat-msg-name">${esc(name)}</span>
+        <span class="rchat-msg-time">${time}</span>
+      </div>
+      <div class="rchat-msg-text">${escHtml(msg.body)}</div>
+    </div>
+  `;
+      area.appendChild(div);
+      if (animate) scrollRchat();
+    }
+
+    function appendSystemMsg(text) {
+      const area = document.getElementById('rchatMsgs');
+      const div = document.createElement('div');
+      div.className = 'rchat-system-msg';
+      div.textContent = text;
+      area.appendChild(div);
+      scrollRchat();
+    }
+
+    function scrollRchat() {
+      const a = document.getElementById('rchatMsgs');
+      a.scrollTop = a.scrollHeight;
+    }
+
+    function handleRchatKey(e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendRchatMsg(); }
+    }
+
+    async function sendRchatMsg() {
+      if (!activeServer) return;
+      const inp = document.getElementById('rchatInput');
+      const body = inp.value.trim();
+      if (!body) return;
+      inp.value = '';
+
+      const client = ZenAuth.getSupabaseClient();
+      await client.from('server_messages').insert({
+        server_id: activeServer.id,
+        sender_id: myUserId,
+        body
+      });
+    }
+
+    /* ═══════════════════════════════════════════════
+       VOICE CHAT (WebRTC)
+    ═══════════════════════════════════════════════ */
     async function joinVoice() {
       if (!activeServer) return;
 
@@ -1508,51 +1733,53 @@
       document.getElementById('joinVoiceBtn').parentElement.style.display = 'none';
       document.getElementById('inVoiceControls').style.display = 'flex';
 
+      // Add self to participants
       voiceParticipants[myUserId] = { profile: myProfile, muted: false, speaking: false, isMe: true };
       renderParticipants();
+
+      // Setup voice activity detection
       setupVAD();
 
+      // Subscribe to signaling channel
       const client = ZenAuth.getSupabaseClient();
       voiceChannel = client.channel(`voice:${activeServer.id}`, { config: { presence: { key: myUserId } } });
 
       voiceChannel
         .on('presence', { event: 'sync' }, async () => {
           const state = voiceChannel.presenceState();
+          const peers = Object.keys(state).filter(k => k !== myUserId);
 
-          // Update participant display from presence state
+          // Connect to new peers — only initiate if our userId is lexicographically greater
+          // (ensures exactly one side is initiator, preventing duplicate connections)
+          for (const peerId of peers) {
+            if (!peerConnections[peerId]) {
+              const isInitiator = myUserId > peerId;
+              await createPeerConnection(peerId, isInitiator);
+            }
+          }
+
+          // Update participant list from presence
           const presences = Object.values(state).flat();
           for (const p of presences) {
-            if (!p.userId || p.userId === myUserId) continue;
-            if (!voiceParticipants[p.userId]) {
+            if (p.userId && !voiceParticipants[p.userId]) {
               voiceParticipants[p.userId] = { profile: { display_name: p.name, avatar_emoji: p.emoji, avatar_color: p.color }, muted: p.muted || false, speaking: false };
-            } else {
+            } else if (p.userId) {
               voiceParticipants[p.userId].muted = p.muted || false;
             }
           }
           renderParticipants();
-
-          // Only connect to peers we haven't already connected to.
-          // Use lexicographic comparison: the peer with the LOWER userId string
-          // is the initiator — this prevents both sides sending offers simultaneously.
-          const peers = Object.keys(state).filter(k => k !== myUserId);
-          for (const peerId of peers) {
-            if (!peerConnections[peerId]) {
-              const iAmInitiator = myUserId < peerId;
-              await createPeerConnection(peerId, iAmInitiator);
-            }
-          }
         })
         .on('presence', { event: 'join' }, async ({ key, newPresences }) => {
-          if (key === myUserId) return;
           const p = newPresences[0];
-          voiceParticipants[key] = { profile: { display_name: p.name, avatar_emoji: p.emoji, avatar_color: p.color }, muted: p.muted || false, speaking: false };
-          renderParticipants();
-          appendSystemMsg(`${p.name || 'Someone'} joined voice`);
-
-          // On join event, only the peer with LOWER userId initiates
-          if (!peerConnections[key]) {
-            const iAmInitiator = myUserId < key;
-            await createPeerConnection(key, iAmInitiator);
+          if (key !== myUserId) {
+            voiceParticipants[key] = { profile: { display_name: p.name, avatar_emoji: p.emoji, avatar_color: p.color }, muted: p.muted || false, speaking: false };
+            renderParticipants();
+            appendSystemMsg(`${p.name || 'Someone'} joined voice`);
+            // Initiator is the one with the lexicographically greater userId (consistent with sync handler)
+            if (!peerConnections[key]) {
+              const isInitiator = myUserId > key;
+              await createPeerConnection(key, isInitiator);
+            }
           }
         })
         .on('presence', { event: 'leave' }, ({ key }) => {
@@ -1565,41 +1792,25 @@
           }
         })
         .on('broadcast', { event: 'signal' }, async ({ payload }) => {
-          if (payload.to !== myUserId) return;
+          // Allow __all__ broadcasts (e.g. mute_update) to pass through
+          if (payload.to !== myUserId && payload.to !== '__all__') return;
           const from = payload.from;
 
           if (payload.type === 'offer') {
-            // Answerer side: create pc if needed, set remote desc, answer
             if (!peerConnections[from]) await createPeerConnection(from, false);
             const pc = peerConnections[from];
-            try {
-              await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-              await drainIceCandidates(pc, from);
-              const answer = await pc.createAnswer();
-              await pc.setLocalDescription(answer);
-              voiceChannel.send({ type: 'broadcast', event: 'signal', payload: { from: myUserId, to: from, type: 'answer', sdp: answer } });
-            } catch(e) { console.error('offer handling error:', e); }
-
+            await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            voiceChannel.send({ type: 'broadcast', event: 'signal', payload: { from: myUserId, to: from, type: 'answer', sdp: answer } });
           } else if (payload.type === 'answer') {
             const pc = peerConnections[from];
-            if (pc && pc.signalingState === 'have-local-offer') {
-              try {
-                await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-                await drainIceCandidates(pc, from);
-              } catch(e) { console.error('answer handling error:', e); }
-            }
-
+            if (pc) await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
           } else if (payload.type === 'ice') {
             const pc = peerConnections[from];
-            if (!pc || !payload.candidate) return;
-            // Buffer candidates until remote description is set
-            if (!pc.remoteDescription) {
-              if (!iceCandidateBuffers[from]) iceCandidateBuffers[from] = [];
-              iceCandidateBuffers[from].push(payload.candidate);
-            } else {
-              try { await pc.addIceCandidate(new RTCIceCandidate(payload.candidate)); } catch(e) {}
+            if (pc && payload.candidate) {
+              try { await pc.addIceCandidate(new RTCIceCandidate(payload.candidate)); } catch (e) { }
             }
-
           } else if (payload.type === 'mute_update') {
             if (voiceParticipants[from]) {
               voiceParticipants[from].muted = payload.muted;
@@ -1626,14 +1837,14 @@
       const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
       peerConnections[peerId] = pc;
 
-      // Add all local audio tracks
+      // Add local tracks
       if (localStream) {
         localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
       }
 
-      // Handle incoming remote audio
+      // When we get remote audio
       pc.ontrack = (event) => {
-        const stream = event.streams[0] || new MediaStream([event.track]);
+        const stream = event.streams[0];
         let audio = document.getElementById(`audio-${peerId}`);
         if (!audio) {
           audio = document.createElement('audio');
@@ -1643,56 +1854,31 @@
           document.getElementById('audioContainer').appendChild(audio);
         }
         audio.srcObject = stream;
-
-        // Explicitly call play() to work around autoplay policy
-        audio.play().catch(() => {
-          // Autoplay blocked — show a one-time "click to unmute" prompt
-          if (!document.getElementById('vcUnmutePrompt')) {
-            const btn = document.createElement('button');
-            btn.id = 'vcUnmutePrompt';
-            btn.textContent = '🔇 Click to hear voice chat';
-            btn.className = 'btn btn-primary';
-            btn.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;';
-            btn.onclick = () => {
-              document.querySelectorAll('#audioContainer audio').forEach(a => a.play());
-              btn.remove();
-            };
-            document.body.appendChild(btn);
-          }
+        // Explicitly call play() to bypass autoplay restrictions
+        audio.play().catch(err => {
+          console.warn('[Voice] audio.play() blocked:', err);
+          // Retry on next user gesture
+          const retry = () => { audio.play().catch(() => {}); document.removeEventListener('click', retry); };
+          document.addEventListener('click', retry);
         });
-
         setupRemoteVAD(stream, peerId);
       };
 
-      // Send ICE candidates as they are gathered
+      // ICE candidates
       pc.onicecandidate = (event) => {
         if (event.candidate && voiceChannel) {
-          voiceChannel.send({ type: 'broadcast', event: 'signal', payload: {
-            from: myUserId, to: peerId, type: 'ice', candidate: event.candidate
-          }});
+          voiceChannel.send({ type: 'broadcast', event: 'signal', payload: { from: myUserId, to: peerId, type: 'ice', candidate: event.candidate } });
         }
       };
 
       pc.onconnectionstatechange = () => {
-        console.log(`[Voice] Peer ${peerId} connection: ${pc.connectionState}`);
-        if (pc.connectionState === 'failed') {
-          console.warn('[Voice] Connection failed, cleaning up peer:', peerId);
-          cleanupPeer(peerId);
-        }
-      };
-
-      pc.onicegatheringstatechange = () => {
-        console.log(`[Voice] ICE gathering state: ${pc.iceGatheringState}`);
+        if (pc.connectionState === 'failed') { cleanupPeer(peerId); }
       };
 
       if (isInitiator) {
-        try {
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          voiceChannel?.send({ type: 'broadcast', event: 'signal', payload: {
-            from: myUserId, to: peerId, type: 'offer', sdp: offer
-          }});
-        } catch(e) { console.error('createOffer error:', e); }
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        voiceChannel?.send({ type: 'broadcast', event: 'signal', payload: { from: myUserId, to: peerId, type: 'offer', sdp: offer } });
       }
 
       return pc;
@@ -1703,12 +1889,11 @@
         peerConnections[peerId].close();
         delete peerConnections[peerId];
       }
-      delete iceCandidateBuffers[peerId];
       const audio = document.getElementById(`audio-${peerId}`);
       if (audio) audio.remove();
     }
 
-        async function leaveVoice() {
+    async function leaveVoice() {
       if (!inVoice) return;
       inVoice = false;
 
@@ -1766,9 +1951,19 @@
 
     /* Voice Activity Detection */
     let audioContext = null;
+    function getOrCreateAudioContext() {
+      if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      // Browsers suspend AudioContext until a user gesture — resume it
+      if (audioContext.state === 'suspended') {
+        audioContext.resume().catch(() => {});
+      }
+      return audioContext;
+    }
     function setupVAD() {
       if (!localStream) return;
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      audioContext = getOrCreateAudioContext();
       const source = audioContext.createMediaStreamSource(localStream);
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 512;
@@ -1791,12 +1986,14 @@
     }
 
     function setupRemoteVAD(stream, peerId) {
-      if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      if (!audioContext) audioContext = getOrCreateAudioContext();
       try {
         const source = audioContext.createMediaStreamSource(stream);
         const analyser = audioContext.createAnalyser();
         analyser.fftSize = 512;
         source.connect(analyser);
+        // Route to speakers — this is what actually plays the audio
+        source.connect(audioContext.destination);
         const data = new Uint8Array(analyser.frequencyBinCount);
 
         function check() {
@@ -1811,7 +2008,7 @@
           if (peerConnections[peerId]) requestAnimationFrame(check);
         }
         requestAnimationFrame(check);
-      } catch (e) { }
+      } catch (e) { console.warn('[Voice] setupRemoteVAD error:', e); }
     }
 
     function renderParticipants() {
